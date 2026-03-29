@@ -127,6 +127,31 @@ def parse_diff(text: str) -> list[FileDiff]:
     return files
 
 
+def file_to_diff(path: str, content: str) -> list[FileDiff]:
+    """Create a synthetic FileDiff showing all lines as context for file review."""
+    lines_text = content.splitlines()
+    n = len(lines_text)
+    diff_lines = [
+        DiffLine(
+            content=f"@@ -1,{n} +1,{n} @@",
+            line_type="hunk_header",
+            raw=f"@@ -1,{n} +1,{n} @@",
+        )
+    ]
+    for i, line in enumerate(lines_text, 1):
+        diff_lines.append(
+            DiffLine(
+                content=line,
+                line_type="context",
+                old_line_no=i,
+                new_line_no=i,
+                raw=f" {line}",
+            )
+        )
+    hunk = DiffHunk(header=diff_lines[0].content, lines=diff_lines, old_start=1, new_start=1)
+    return [FileDiff(path=path, status="modified", hunks=[hunk])]
+
+
 def align_hunk_lines(lines: list[DiffLine]) -> list[SideBySideRow]:
     """Pair remove/add lines for side-by-side display."""
     rows: list[SideBySideRow] = []

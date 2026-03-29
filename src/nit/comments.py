@@ -75,6 +75,31 @@ def save_comments(
         raise
 
 
+def export_comments_markdown(comments: list[ReviewComment]) -> str:
+    if not comments:
+        return ""
+    by_file: dict[str, list[ReviewComment]] = {}
+    for c in comments:
+        by_file.setdefault(c.file_path, []).append(c)
+    lines = ["# Code Review Comments", ""]
+    for path in sorted(by_file):
+        lines.append(f"## {path}")
+        lines.append("")
+        for c in sorted(by_file[path], key=lambda x: x.new_line_no or x.old_line_no or 0):
+            line_ref = f"L{c.new_line_no}" if c.new_line_no else f"old L{c.old_line_no}"
+            lines.append(f"- **{line_ref}**: {c.comment}")
+            if c.line_content:
+                lines.append("  ```")
+                lines.append(f"  {c.line_content}")
+                lines.append("  ```")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def export_comments_json(comments: list[ReviewComment]) -> str:
+    return json.dumps([_comment_to_dict(c) for c in comments], indent=2)
+
+
 def comment_matches_line(c: ReviewComment, dl: DiffLine) -> bool:
     if c.new_line_no is not None and dl.new_line_no == c.new_line_no:
         return True

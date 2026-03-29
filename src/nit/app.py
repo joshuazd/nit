@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 from collections import Counter
+from pathlib import Path
 
 from rich.style import Style
 from rich.text import Text
@@ -18,9 +19,10 @@ from textual.widgets._tree import TreeNode
 from . import comments as comments_mod
 from . import git
 from .cli import CLIArgs
-from .diff_parser import align_hunk_lines, build_patch, parse_diff, word_diff_segments
+from .diff_parser import align_hunk_lines, build_patch, file_to_diff, parse_diff, word_diff_segments
 from .models import DiffHunk, FileDiff, ReviewComment, SideBySideRow
 from .models import DiffLine as DiffLineModel
+from .syntax import detect_language, highlight_line
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +216,7 @@ class DiffView(VerticalScroll):
     cursor_index: reactive[int] = reactive(0)
     side_by_side: reactive[bool] = reactive(False)
     word_diff: reactive[bool] = reactive(False)
+    syntax_highlight: reactive[bool] = reactive(False)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -295,6 +298,8 @@ class DiffView(VerticalScroll):
                 else:
                     i += 1
 
+        lang = detect_language(file_diff.path) if self.syntax_highlight else None
+
         flat_idx = 0
         for hunk in file_diff.hunks:
             for dl in hunk.lines:
@@ -307,11 +312,22 @@ class DiffView(VerticalScroll):
                     text = self._format_word_diff_line(
                         dl, word_pairs[flat_idx], line_no_str, prefix
                     )
+                elif lang and dl.line_type == "context":
+                    text = self._format_syntax_line(dl, line_no_str, prefix, lang)
+                elif lang and dl.line_type in ("add", "remove"):
+                    style = "reverse green" if dl.line_type == "add" else "reverse red"
+                    text = Text(f"{line_no_str}{prefix}{dl.content}", style=style)
                 else:
-                    text = f"{line_no_str}{prefix}{dl.content}"
+                    text = Text()
+                    if dl.line_type == "context":
+                        text.append(line_no_str, style="dim")
+                    else:
+                        text.append(line_no_str)
+                    text.append(f"{prefix}{dl.content}")
 
                 w = DiffLineWidget(text)
-                w.add_class(dl.line_type.replace("_", "-"))
+                if not (lang and dl.line_type in ("add", "remove", "context")):
+                    w.add_class(dl.line_type.replace("_", "-"))
                 self._line_widgets.append(w)
                 self.mount(w)
 
@@ -330,6 +346,7 @@ class DiffView(VerticalScroll):
         comment_map: dict[int | None, list[ReviewComment]],
     ) -> None:
         half = max(40, (self.size.width - 15) // 2)  # each side's content width
+        lang = detect_language(file_diff.path) if self.syntax_highlight else None
 
         for hunk in file_diff.hunks:
             rows = align_hunk_lines(hunk.lines)
@@ -343,7 +360,9 @@ class DiffView(VerticalScroll):
                 self.diff_lines.append(primary)
 
                 # Build Rich Text for the row
-                text = self._format_sbs_row(row, half)
+                text = self._format_sbs_row(
+                    row, half, lang if row.row_type == "context" else None
+                )
                 w = DiffLineWidget(text)
 
                 w.add_class("sbs")
@@ -351,7 +370,6 @@ class DiffView(VerticalScroll):
                     w.add_class("hunk-header")
                 elif row.row_type == "context":
                     w.add_class("context")
-                # For change rows, coloring is in the Rich Text itself
 
                 self._line_widgets.append(w)
                 self.mount(w)
@@ -365,7 +383,9 @@ class DiffView(VerticalScroll):
                         block = CommentBlock(f"-- {c.comment}")
                         self.mount(block)
 
-    def _format_sbs_row(self, row: SideBySideRow, half: int) -> Text:
+    def _format_sbs_row(
+        self, row: SideBySideRow, half: int, language: str | None = None
+    ) -> Text:
         """Format a side-by-side row as Rich Text with per-side coloring."""
         if row.row_type == "hunk_header":
             left = row.left
@@ -400,6 +420,10 @@ class DiffView(VerticalScroll):
                     if left_len >= half:
                         break
                 text.append(" " * max(0, half - left_len))
+            elif language:
+                highlighted = highlight_line(row.left.content[:half], language)
+                text.append_text(highlighted)
+                text.append(" " * max(0, half - highlighted.cell_len))
             else:
                 left_content = row.left.content[:half]
                 style = "red" if row.left.line_type == "remove" else ""
@@ -418,6 +442,9 @@ class DiffView(VerticalScroll):
             if do_word_diff:
                 for seg_text, changed in new_segs:
                     text.append(seg_text[:half], style="bold reverse green" if changed else "green")
+            elif language:
+                highlighted = highlight_line(row.right.content[:half], language)
+                text.append_text(highlighted)
             else:
                 right_content = row.right.content[:half]
                 style = "green" if row.right.line_type == "add" else ""
@@ -442,6 +469,20 @@ class DiffView(VerticalScroll):
         elif dl.line_type == "hunk_header":
             return ""
         return " "
+
+    def _format_syntax_line(
+        self,
+        dl: DiffLineModel,
+        line_no_str: str,
+        prefix: str,
+        language: str,
+    ) -> Text:
+        """Render a context line with syntax highlighting."""
+        text = Text()
+        text.append(f"{line_no_str}{prefix}", style="dim")
+        highlighted = highlight_line(dl.content, language)
+        text.append_text(highlighted)
+        return text
 
     def _format_word_diff_line(
         self,
@@ -621,7 +662,7 @@ class NitApp(App):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
+        Binding("q", "quit", "Quit", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("J", "next_hunk", "Next hunk", show=False),
@@ -629,17 +670,21 @@ class NitApp(App):
         Binding("n", "next_file", "Next file"),
         Binding("p", "prev_file", "Prev file"),
         Binding("c", "comment", "Comment"),
-        Binding("d", "delete_comment", "Delete comment"),
+        Binding("d", "delete_comment", "Delete"),
         Binding("m", "cycle_mode", "Mode"),
-        Binding("r", "refresh", "Refresh"),
+        Binding("r", "refresh", "Refresh", show=False),
         Binding("right_square_bracket", "next_comment", "]", show=False),
         Binding("left_square_bracket", "prev_comment", "[", show=False),
         Binding("G", "cursor_end", "End", show=False),
         Binding("s", "toggle_side_by_side", "Split"),
-        Binding("w", "toggle_word_diff", "Word diff"),
+        Binding("w", "toggle_word_diff", "Word"),
+        Binding("W", "toggle_whitespace", "Whitespace"),
+        Binding("e", "export_comments", "Export", show=False),
+        Binding("h", "toggle_syntax", "Highlight", show=False),
     ]
 
     diff_mode: reactive[str] = reactive("branch")
+    ignore_whitespace: reactive[bool] = reactive(False)
 
     def __init__(self, cli_args: CLIArgs | None = None, *args, **kwargs) -> None:
         kwargs.setdefault("ansi_color", True)
@@ -654,6 +699,8 @@ class NitApp(App):
         self.branch = ""
         self.base = ""
         self._file_index: int = 0
+        self._last_raw_diff: str = ""
+        self._file_review_mode: bool = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="frame"):
@@ -670,6 +717,9 @@ class NitApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        if self._cli_args.file_path:
+            self._mount_file_review()
+            return
         try:
             self.repo_root = git.get_repo_root()
         except Exception:
@@ -683,6 +733,8 @@ class NitApp(App):
         self.base = git.get_main_branch(self.repo_root)
         if self._cli_args.mode:
             self.diff_mode = self._cli_args.mode
+        elif self.branch and self.branch == self.base:
+            self.diff_mode = "unstaged"
         try:
             self.comments = comments_mod.load_comments(self.repo_root)
         except Exception:
@@ -690,30 +742,79 @@ class NitApp(App):
             self.notify("Could not load .nit.json — starting with no comments", severity="warning")
             self.comments = []
         self._load_diff()
+        self.set_interval(5.0, self._auto_refresh_poll)
 
-    def _load_diff(self) -> None:
-        if self.repo_root is None:
+    def _mount_file_review(self) -> None:
+        from pathlib import Path
+
+        file_path = self._cli_args.file_path
+        p = Path(file_path)
+        if not p.exists():
+            self.notify(f"File not found: {file_path}", severity="error")
+            self.exit()
             return
+        self._file_review_mode = True
+        self.branch = str(p.name)
+        self.diff_mode = "file"
+        try:
+            self.repo_root = git.get_repo_root()
+        except Exception:
+            self.repo_root = p.parent
+        try:
+            self.comments = comments_mod.load_comments(self.repo_root)
+        except Exception:
+            self.comments = []
+        content = p.read_text()
+        self.file_diffs = file_to_diff(str(p), content)
+        self._update_file_list()
+        self._update_status()
+
+    def _auto_refresh_poll(self) -> None:
+        if self._file_review_mode:
+            return
+        if self._commit_input is not None:
+            return
+        dv = self.query_one("#diff-view", DiffView)
+        if dv._active_input is not None:
+            return
+        try:
+            raw = self._get_raw_diff()
+        except Exception:
+            return
+        if raw != self._last_raw_diff:
+            self._last_raw_diff = raw
+            self.file_diffs = parse_diff(raw)
+            self._update_file_list()
+            self._update_status()
+
+    def _get_raw_diff(self) -> str:
+        if self.repo_root is None:
+            return ""
         cwd = self.repo_root
         path_filter = self._cli_args.path_filter
-
         try:
+            ws = self.ignore_whitespace
             if self._cli_args.commit_range:
-                raw = git.get_commit_range_diff(self._cli_args.commit_range, cwd, path_filter)
+                return git.get_commit_range_diff(
+                    self._cli_args.commit_range, cwd, path_filter, ignore_whitespace=ws
+                )
             elif self.diff_mode == "branch":
-                raw = git.get_branch_diff(cwd, path_filter)
+                return git.get_branch_diff(cwd, path_filter, ignore_whitespace=ws)
             elif self.diff_mode == "unstaged":
-                raw = git.get_unstaged_diff(cwd, path_filter)
+                return git.get_unstaged_diff(cwd, path_filter, ignore_whitespace=ws)
             elif self.diff_mode == "staged":
-                raw = git.get_staged_diff(cwd, path_filter)
+                return git.get_staged_diff(cwd, path_filter, ignore_whitespace=ws)
             else:
-                raw = git.get_all_uncommitted_diff(cwd, path_filter)
+                return git.get_all_uncommitted_diff(cwd, path_filter, ignore_whitespace=ws)
         except subprocess.CalledProcessError as e:
             msg = (e.stderr or "").strip() or "Failed to load diff"
             logger.warning("Git diff failed: %s", msg)
             self.notify(msg, severity="error")
-            raw = ""
+            return ""
 
+    def _load_diff(self) -> None:
+        raw = self._get_raw_diff()
+        self._last_raw_diff = raw
         self.file_diffs = parse_diff(raw)
         self._update_file_list()
         self._update_status()
@@ -777,7 +878,8 @@ class NitApp(App):
         n_comments = len(self.comments)
         n_files = len(self.file_diffs)
         self.query_one("#seg-branch", Label).update(f"⎇ {self.branch}")
-        self.query_one("#seg-mode", Label).update(f"⇄  {mode_label}")
+        ws_indicator = " [no-ws]" if self.ignore_whitespace else ""
+        self.query_one("#seg-mode", Label).update(f"⇄  {mode_label}{ws_indicator}")
         self.query_one("#seg-files", Label).update(f"▤ {n_files} files")
         self.query_one("#seg-comments", Label).update(f"✎ {n_comments} comments")
 
@@ -866,7 +968,7 @@ class NitApp(App):
         self.query_one("#diff-view", DiffView).jump_to_next_comment(forward=False)
 
     def action_cycle_mode(self) -> None:
-        if self._cli_args.commit_range:
+        if self._file_review_mode or self._cli_args.commit_range:
             return
         idx = DIFF_MODES.index(self.diff_mode)
         self.diff_mode = DIFF_MODES[(idx + 1) % len(DIFF_MODES)]
@@ -923,9 +1025,21 @@ class NitApp(App):
             self._update_status()
             self._refresh_file_labels()
 
+    def action_toggle_whitespace(self) -> None:
+        self.ignore_whitespace = not self.ignore_whitespace
+        self._load_diff()
+
     def action_toggle_word_diff(self) -> None:
         dv = self.query_one("#diff-view", DiffView)
         dv.word_diff = not dv.word_diff
+        if self.current_file:
+            saved_cursor = dv.cursor_index
+            file_comments = [c for c in self.comments if c.file_path == self.current_file.path]
+            dv.load_file_diff(self.current_file, file_comments, restore_cursor=saved_cursor)
+
+    def action_toggle_syntax(self) -> None:
+        dv = self.query_one("#diff-view", DiffView)
+        dv.syntax_highlight = not dv.syntax_highlight
         if self.current_file:
             saved_cursor = dv.cursor_index
             file_comments = [c for c in self.comments if c.file_path == self.current_file.path]
@@ -942,6 +1056,8 @@ class NitApp(App):
     # --- Git operations (g-prefixed chords) ---
 
     def _action_stage_hunk(self) -> None:
+        if self._file_review_mode:
+            return
         if self.diff_mode not in ("unstaged", "all"):
             self.notify("Stage: switch to unstaged/all mode", severity="warning")
             return
@@ -960,6 +1076,8 @@ class NitApp(App):
         self._load_diff()
 
     def _action_unstage_hunk(self) -> None:
+        if self._file_review_mode:
+            return
         if self.diff_mode != "staged":
             self.notify("Unstage: switch to staged mode", severity="warning")
             return
@@ -978,6 +1096,8 @@ class NitApp(App):
         self._load_diff()
 
     def _action_discard_hunk(self) -> None:
+        if self._file_review_mode:
+            return
         if self.diff_mode not in ("unstaged", "all"):
             self.notify("Discard: switch to unstaged/all mode", severity="warning")
             return
@@ -996,6 +1116,8 @@ class NitApp(App):
         self._load_diff()
 
     def _action_commit_prompt(self) -> None:
+        if self._file_review_mode:
+            return
         if self._commit_input is not None:
             return
         self._commit_input = CommitInput(
@@ -1032,6 +1154,30 @@ class NitApp(App):
             self._update_status()
             self._refresh_file_labels()
 
+    def action_export_comments(self) -> None:
+        if not self.comments:
+            self.notify("No comments to export", severity="warning")
+            return
+        text = comments_mod.export_comments_markdown(self.comments)
+        try:
+            subprocess.run(["pbcopy"], input=text, text=True, check=True, timeout=5)
+            self.notify(f"Copied {len(self.comments)} comments to clipboard")
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            self.notify("Clipboard copy failed", severity="error")
+
+
+def _export_on_quit(args: CLIArgs, comments: list[ReviewComment]) -> None:
+    if not args.export_comments or not comments:
+        return
+    if args.export_format == "json":
+        text = comments_mod.export_comments_json(comments)
+    else:
+        text = comments_mod.export_comments_markdown(comments)
+    if args.export_comments == "-":
+        print(text)
+    else:
+        Path(args.export_comments).write_text(text)
+
 
 def main() -> None:
     from .cli import parse_args
@@ -1044,6 +1190,7 @@ def main() -> None:
     )
     app = NitApp(cli_args=args)
     app.run()
+    _export_on_quit(args, app.comments)
 
 
 if __name__ == "__main__":

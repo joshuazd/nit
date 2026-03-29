@@ -65,25 +65,54 @@ def _append_path_filter(cmd: list[str], path_filter: str | None) -> list[str]:
     return cmd
 
 
-def get_branch_diff(cwd: Path | None = None, path_filter: str | None = None) -> str:
+def _append_whitespace_flag(cmd: list[str], ignore_whitespace: bool) -> list[str]:
+    if ignore_whitespace:
+        cmd = cmd + ["-w"]
+    return cmd
+
+
+def _build_diff_cmd(
+    base_cmd: list[str], ignore_whitespace: bool, path_filter: str | None
+) -> list[str]:
+    cmd = _append_whitespace_flag(base_cmd, ignore_whitespace)
+    return _append_path_filter(cmd, path_filter)
+
+
+def get_branch_diff(
+    cwd: Path | None = None,
+    path_filter: str | None = None,
+    ignore_whitespace: bool = False,
+) -> str:
     base = get_main_branch(cwd)
-    cmd = ["git", "diff", f"{base}...HEAD"]
-    return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
+    cmd = _build_diff_cmd(["git", "diff", f"{base}...HEAD"], ignore_whitespace, path_filter)
+    return _run(cmd, cwd=cwd)
 
 
-def get_unstaged_diff(cwd: Path | None = None, path_filter: str | None = None) -> str:
-    cmd = ["git", "diff"]
-    return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
+def get_unstaged_diff(
+    cwd: Path | None = None,
+    path_filter: str | None = None,
+    ignore_whitespace: bool = False,
+) -> str:
+    cmd = _build_diff_cmd(["git", "diff"], ignore_whitespace, path_filter)
+    return _run(cmd, cwd=cwd)
 
 
-def get_all_uncommitted_diff(cwd: Path | None = None, path_filter: str | None = None) -> str:
-    cmd = ["git", "diff", "HEAD"]
-    return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
+def get_all_uncommitted_diff(
+    cwd: Path | None = None,
+    path_filter: str | None = None,
+    ignore_whitespace: bool = False,
+) -> str:
+    cmd = _build_diff_cmd(["git", "diff", "HEAD"], ignore_whitespace, path_filter)
+    return _run(cmd, cwd=cwd)
 
 
-def get_staged_diff(cwd: Path | None = None, path_filter: str | None = None) -> str:
-    cmd = ["git", "diff", "--cached"]
-    return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
+def get_staged_diff(
+    cwd: Path | None = None,
+    path_filter: str | None = None,
+    ignore_whitespace: bool = False,
+) -> str:
+    cmd = _build_diff_cmd(["git", "diff", "--cached"], ignore_whitespace, path_filter)
+    return _run(cmd, cwd=cwd)
 
 
 def apply_patch(
@@ -116,7 +145,10 @@ def commit(message: str, cwd: Path | None = None) -> str:
 
 
 def get_commit_range_diff(
-    commit_range: str, cwd: Path | None = None, path_filter: str | None = None
+    commit_range: str,
+    cwd: Path | None = None,
+    path_filter: str | None = None,
+    ignore_whitespace: bool = False,
 ) -> str:
-    cmd = ["git", "diff", commit_range]
-    return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
+    cmd = _build_diff_cmd(["git", "diff", commit_range], ignore_whitespace, path_filter)
+    return _run(cmd, cwd=cwd)

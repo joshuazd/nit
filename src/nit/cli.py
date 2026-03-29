@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -11,6 +12,9 @@ class CLIArgs:
     commit_range: str | None = None
     path_filter: str | None = None
     verbose: bool = False
+    file_path: str | None = None
+    export_comments: str | None = None
+    export_format: str = "markdown"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,10 +51,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose logging to stderr",
     )
     parser.add_argument(
-        "commit_range",
+        "--export-comments",
+        nargs="?",
+        const="-",
+        default=None,
+        metavar="FILE",
+        help="Export comments on quit (- for stdout, or file path)",
+    )
+    parser.add_argument(
+        "--export-format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Comment export format (default: markdown)",
+    )
+    parser.add_argument(
+        "target",
         nargs="?",
         default=None,
-        help="Git commit range, e.g. HEAD~3..HEAD or main..feature",
+        help="File path (review mode) or git commit range (e.g. HEAD~3..HEAD)",
     )
     return parser
 
@@ -58,9 +76,20 @@ def build_parser() -> argparse.ArgumentParser:
 def parse_args(argv: list[str] | None = None) -> CLIArgs:
     parser = build_parser()
     ns = parser.parse_args(argv)
+    target = ns.target
+    file_path = None
+    commit_range = None
+    if target:
+        if Path(target).exists():
+            file_path = target
+        else:
+            commit_range = target
     return CLIArgs(
         mode=ns.mode,
-        commit_range=ns.commit_range,
+        commit_range=commit_range,
         path_filter=ns.path,
         verbose=ns.verbose,
+        file_path=file_path,
+        export_comments=ns.export_comments,
+        export_format=ns.export_format,
     )
