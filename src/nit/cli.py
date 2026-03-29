@@ -15,7 +15,7 @@ class CLIArgs:
 
 def build_parser() -> argparse.ArgumentParser:
     try:
-        version = importlib.metadata.version("git-nit")
+        version = importlib.metadata.version("nit-cli")
     except importlib.metadata.PackageNotFoundError:
         version = "0.0.0-dev"
 

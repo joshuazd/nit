@@ -1,4 +1,4 @@
-# git-nit
+# nit
 
 Terminal diff viewer with inline review comments.
 
@@ -15,7 +15,7 @@ Python + Textual TUI. Single-screen app with two panels (file list + diff view).
 
 ## Package
 
-- PyPI name: `git-nit` (import name: `nit`, CLI command: `nit`)
+- PyPI name: `nit-cli` (import name: `nit`, CLI command: `nit`)
 - License: GPL-3.0
 
 ## Testing

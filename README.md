@@ -1,4 +1,4 @@
-# git-nit
+# nit
 
 Terminal diff viewer with inline review comments.
 
@@ -7,7 +7,7 @@ Navigate diffs with vim-style keybindings, leave comments on specific lines, and
 ## Install
 
 ```bash
-pip install git-nit
+pip install nit-cli
 ```
 
 ## Usage
@@ -82,7 +82,7 @@ nit works as a review tool for [Claude Code](https://docs.anthropic.com/en/docs/
 
 ```bash
 git clone https://github.com/joshuazd/nit.git
-cd git-nit
+cd nit
 pip install -e ".[dev]"
 pytest
 ```

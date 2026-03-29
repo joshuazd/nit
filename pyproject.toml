@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "git-nit"
+name = "nit-cli"
 version = "0.2.0"
 description = "Terminal diff viewer with inline review comments"
 readme = "README.md"
