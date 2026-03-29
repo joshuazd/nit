@@ -10,21 +10,11 @@ def git_repo(tmp_path):
     """Create a temporary git repo with one commit."""
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
     subprocess.run(["git", "checkout", "-b", "main"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, capture_output=True)
     (tmp_path / "file.txt").write_text("hello\n")
     subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=tmp_path,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "t@t",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "t@t",
-            "HOME": str(tmp_path),
-            "PATH": subprocess.check_output(["bash", "-c", "echo $PATH"], text=True).strip(),
-        },
-    )
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True)
     return tmp_path
 
 
@@ -68,22 +58,6 @@ def test_detached_head(git_repo):
     subprocess.run(["git", "checkout", sha], cwd=git_repo, capture_output=True)
     branch = git.get_current_branch(cwd=git_repo)
     assert branch == ""
-
-
-GIT_ENV_KEYS = {
-    "GIT_AUTHOR_NAME": "test",
-    "GIT_AUTHOR_EMAIL": "t@t",
-    "GIT_COMMITTER_NAME": "test",
-    "GIT_COMMITTER_EMAIL": "t@t",
-}
-
-
-def _git_env(tmp_path):
-    return {
-        **GIT_ENV_KEYS,
-        "HOME": str(tmp_path),
-        "PATH": subprocess.check_output(["bash", "-c", "echo $PATH"], text=True).strip(),
-    }
 
 
 def test_get_staged_diff_empty(git_repo):
@@ -132,12 +106,7 @@ def test_commit(git_repo):
     (git_repo / "file.txt").write_text("committed\n")
     subprocess.run(["git", "add", "file.txt"], cwd=git_repo, capture_output=True)
     git.commit("test commit", cwd=git_repo)
-    log = subprocess.check_output(
-        ["git", "log", "--oneline", "-1"],
-        cwd=git_repo,
-        text=True,
-        env=_git_env(git_repo),
-    )
+    log = subprocess.check_output(["git", "log", "--oneline", "-1"], cwd=git_repo, text=True)
     assert "test commit" in log
 
 
