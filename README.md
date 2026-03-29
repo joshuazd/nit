@@ -39,10 +39,19 @@ nit --mode all
 nit HEAD~3..HEAD
 nit main..feature
 
+# Review any file (read-only, no git required)
+nit path/to/file.py
+
 # Filter to specific files or directories
 nit --path src/
 nit --path src/nit/app.py main..feature
+
+# Export comments on quit
+nit --export-comments comments.md
+nit --export-comments - --export-format json  # stdout as JSON
 ```
+
+On main/master, nit defaults to unstaged mode. On feature branches, it defaults to branch diff. The diff auto-refreshes every 5 seconds.
 
 ## Keybindings
 
@@ -55,9 +64,12 @@ nit --path src/nit/app.py main..feature
 | `gg` / `G` | Jump to top / bottom |
 | `c` | Add comment on current line |
 | `d` | Delete comment on current line |
+| `e` | Export comments to clipboard |
 | `m` | Cycle diff mode (branch / unstaged / staged / all) |
 | `s` | Toggle side-by-side diff view |
 | `w` | Toggle word-level diff highlighting |
+| `W` | Toggle hide whitespace-only changes |
+| `h` | Toggle syntax highlighting |
 | `r` | Refresh diff |
 | `q` | Quit |
 
