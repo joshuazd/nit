@@ -10,6 +10,14 @@ Navigate diffs with vim-style keybindings, leave comments on specific lines, and
 pip install nit-cli
 ```
 
+Or from source:
+
+```bash
+git clone https://github.com/joshuazd/nit.git
+cd nit
+pip install .
+```
+
 ## Usage
 
 ```bash
@@ -106,7 +114,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The `./nit` bootstrap script auto-creates a virtualenv for quick local use without manual setup.
+The `./nit` bootstrap script auto-creates a virtualenv at `~/.local/share/nit/venv` for quick local use without a manual install.
 
 ## License
 
