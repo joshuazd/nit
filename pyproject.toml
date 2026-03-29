@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nit-cli"
-version = "0.4.1"
+version = "0.4.2"
 description = "Terminal diff viewer with inline review comments"
 readme = "README.md"
 license = "GPL-3.0-only"
