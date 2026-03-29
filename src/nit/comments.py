@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import DiffLine, ReviewComment
+
+logger = logging.getLogger(__name__)
 
 COMMENT_FILE = ".nit.json"
 
@@ -39,8 +42,12 @@ def load_comments(repo_root: Path) -> list[ReviewComment]:
     path = repo_root / COMMENT_FILE
     if not path.exists():
         return []
-    data = json.loads(path.read_text())
-    return [_dict_to_comment(c) for c in data.get("comments", [])]
+    try:
+        data = json.loads(path.read_text())
+        return [_dict_to_comment(c) for c in data.get("comments", [])]
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
+        logger.warning("Failed to load %s: %s", path, e)
+        return []
 
 
 def save_comments(
@@ -63,7 +70,7 @@ def save_comments(
             json.dump(data, f, indent=2)
             f.write("\n")
         Path(tmp).replace(path)
-    except BaseException:
+    except Exception:
         Path(tmp).unlink(missing_ok=True)
         raise
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "git-nit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Terminal diff viewer with inline review comments"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Version Control :: Git",
 ]
 dependencies = [
-    "textual>=0.47.0",
+    "textual>=0.47.0,<1.0",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import os
+import subprocess
 from collections import Counter
 
 from rich.text import Text
@@ -16,6 +18,8 @@ from .cli import CLIArgs
 from .diff_parser import parse_diff
 from .models import DiffLine as DiffLineModel
 from .models import FileDiff, ReviewComment
+
+logger = logging.getLogger(__name__)
 
 STATUS_COLORS = {
     "added": ("A", "green"),
@@ -409,11 +413,19 @@ class NitApp(App):
             self.notify("Not a git repository", severity="error")
             self.exit()
             return
-        self.branch = git.get_current_branch(self.repo_root)
+        try:
+            self.branch = git.get_current_branch(self.repo_root)
+        except Exception:
+            self.branch = ""
         self.base = git.get_main_branch(self.repo_root)
         if self._cli_args.mode:
             self.diff_mode = self._cli_args.mode
-        self.comments = comments_mod.load_comments(self.repo_root)
+        try:
+            self.comments = comments_mod.load_comments(self.repo_root)
+        except Exception:
+            logger.warning("Failed to load comments, starting with empty list")
+            self.notify("Could not load .nit.json — starting with no comments", severity="warning")
+            self.comments = []
         self._load_diff()
 
     def _load_diff(self) -> None:
@@ -422,14 +434,20 @@ class NitApp(App):
         cwd = self.repo_root
         path_filter = self._cli_args.path_filter
 
-        if self._cli_args.commit_range:
-            raw = git.get_commit_range_diff(self._cli_args.commit_range, cwd, path_filter)
-        elif self.diff_mode == "branch":
-            raw = git.get_branch_diff(cwd, path_filter)
-        elif self.diff_mode == "unstaged":
-            raw = git.get_unstaged_diff(cwd, path_filter)
-        else:
-            raw = git.get_all_uncommitted_diff(cwd, path_filter)
+        try:
+            if self._cli_args.commit_range:
+                raw = git.get_commit_range_diff(self._cli_args.commit_range, cwd, path_filter)
+            elif self.diff_mode == "branch":
+                raw = git.get_branch_diff(cwd, path_filter)
+            elif self.diff_mode == "unstaged":
+                raw = git.get_unstaged_diff(cwd, path_filter)
+            else:
+                raw = git.get_all_uncommitted_diff(cwd, path_filter)
+        except subprocess.CalledProcessError as e:
+            msg = (e.stderr or "").strip() or "Failed to load diff"
+            logger.warning("Git diff failed: %s", msg)
+            self.notify(msg, severity="error")
+            raw = ""
 
         self.file_diffs = parse_diff(raw)
         self._update_file_list()
@@ -625,6 +643,11 @@ def main() -> None:
     from .cli import parse_args
 
     args = parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.WARNING,
+        format="%(name)s: %(message)s",
+        stream=__import__("sys").stderr,
+    )
     app = NitApp(cli_args=args)
     app.run()
 

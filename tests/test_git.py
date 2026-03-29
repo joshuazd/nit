@@ -56,3 +56,25 @@ def test_get_unstaged_diff_with_changes(git_repo):
 def test_not_a_repo(tmp_path):
     with pytest.raises(subprocess.CalledProcessError):
         git.get_repo_root(cwd=tmp_path)
+
+
+def test_bad_commit_range(git_repo):
+    with pytest.raises(subprocess.CalledProcessError):
+        git.get_commit_range_diff("nonexistent..refs", cwd=git_repo)
+
+
+def test_detached_head(git_repo):
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=git_repo, text=True).strip()
+    subprocess.run(["git", "checkout", sha], cwd=git_repo, capture_output=True)
+    branch = git.get_current_branch(cwd=git_repo)
+    assert branch == ""
+
+
+def test_timeout_raises(monkeypatch):
+    def mock_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=30)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+        git.get_repo_root()
+    assert "timed out" in exc_info.value.stderr

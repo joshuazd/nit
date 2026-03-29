@@ -10,6 +10,7 @@ class CLIArgs:
     mode: str | None = None
     commit_range: str | None = None
     path_filter: str | None = None
+    verbose: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter to specific file or directory path",
     )
     parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable verbose logging to stderr",
+    )
+    parser.add_argument(
         "commit_range",
         nargs="?",
         default=None,
@@ -54,4 +62,5 @@ def parse_args(argv: list[str] | None = None) -> CLIArgs:
         mode=ns.mode,
         commit_range=ns.commit_range,
         path_filter=ns.path,
+        verbose=ns.verbose,
     )

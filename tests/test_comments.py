@@ -96,3 +96,21 @@ def test_atomic_write_no_leftover_temp(tmp_path):
     names = [f.name for f in files]
     assert ".nit.json" in names
     assert not any(n.endswith(".nit.tmp") for n in names)
+
+
+def test_load_corrupted_json(tmp_path):
+    (tmp_path / ".nit.json").write_text("not valid json{{{")
+    assert load_comments(tmp_path) == []
+
+
+def test_load_wrong_type(tmp_path):
+    (tmp_path / ".nit.json").write_text('"just a string"')
+    assert load_comments(tmp_path) == []
+
+
+def test_load_missing_comment_fields(tmp_path):
+    data = {"comments": [{"file": "x.py", "comment": "ok"}]}
+    (tmp_path / ".nit.json").write_text(json.dumps(data))
+    loaded = load_comments(tmp_path)
+    assert len(loaded) == 1
+    assert loaded[0].file_path == "x.py"

@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,3 +70,26 @@ async def test_cli_args_commit_range(mock_git, mock_comments):
     app = NitApp(cli_args=CLIArgs(commit_range="HEAD~1..HEAD"))
     async with app.run_test():
         mock_git.get_commit_range_diff.assert_called_once()
+
+
+async def test_app_git_diff_failure(mock_git, mock_comments):
+    mock_git.get_branch_diff.side_effect = subprocess.CalledProcessError(
+        1, ["git", "diff"], "", "fatal: bad revision"
+    )
+    app = NitApp()
+    async with app.run_test():
+        assert app.file_diffs == []
+
+
+async def test_app_corrupted_comments(mock_git, mock_comments):
+    mock_comments.load_comments.side_effect = Exception("corrupt")
+    app = NitApp()
+    async with app.run_test():
+        assert app.comments == []
+
+
+async def test_app_detached_head(mock_git, mock_comments):
+    mock_git.get_current_branch.side_effect = Exception("not on branch")
+    app = NitApp()
+    async with app.run_test():
+        assert app.branch == ""

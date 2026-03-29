@@ -1,16 +1,27 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
+GIT_TIMEOUT = 30
+
 
 def _run(args: list[str], cwd: Path | None = None) -> str:
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        cwd=cwd,
-    )
+    logger.debug("Running: %s", " ".join(args))
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=GIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("Git command timed out: %s", " ".join(args))
+        raise subprocess.CalledProcessError(1, args, "", "Command timed out")
     if result.returncode != 0:
         raise subprocess.CalledProcessError(
             result.returncode,
@@ -37,6 +48,7 @@ def get_main_branch(cwd: Path | None = None) -> str:
             capture_output=True,
             text=True,
             cwd=cwd,
+            timeout=GIT_TIMEOUT,
         )
         if result.returncode == 0:
             return name
