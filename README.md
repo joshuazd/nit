@@ -76,16 +76,26 @@ echo '.nit.json' >> ~/.config/git/ignore
 
 ## Claude Code Integration
 
-nit works as a review tool for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Leave comments on Claude's changes using nit, then have Claude read them with the `/review-feedback` skill. This creates a feedback loop where you can guide Claude's work through inline code review.
+nit works as a review tool for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Leave comments on Claude's changes using nit, then have Claude read them with `/nit`. This creates a feedback loop where you can guide Claude's work through inline code review.
 
 ### Install the plugin
 
-```bash
+In Claude Code:
+
+```
 /plugin marketplace add joshuazd/nit
 /plugin install nit
 ```
 
-Then use `/nit` in any Claude Code session to have Claude read and address your comments.
+Then use `/nit` in any project to have Claude read and address your comments.
+
+### Local development
+
+If you cloned the repo, you can test the plugin directly:
+
+```bash
+claude --plugin-dir /path/to/nit
+```
 
 ## Development
 
