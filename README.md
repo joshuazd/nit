@@ -7,6 +7,12 @@ Navigate diffs with vim-style keybindings, leave comments on specific lines, and
 ## Install
 
 ```bash
+brew install joshuazd/tap/nit
+```
+
+Or via pip/pipx:
+
+```bash
 pipx install nit-cli
 ```
 
@@ -46,11 +52,23 @@ nit --path src/nit/app.py main..feature
 | `J` / `K` | Jump to next / previous hunk |
 | `n` / `p` | Next / previous file |
 | `]` / `[` | Jump to next / previous comment |
+| `gg` / `G` | Jump to top / bottom |
 | `c` | Add comment on current line |
 | `d` | Delete comment on current line |
-| `m` | Cycle diff mode (branch / unstaged / all) |
+| `m` | Cycle diff mode (branch / unstaged / staged / all) |
+| `s` | Toggle side-by-side diff view |
+| `w` | Toggle word-level diff highlighting |
 | `r` | Refresh diff |
 | `q` | Quit |
+
+### Git operations (g-prefixed)
+
+| Key | Action |
+|-----|--------|
+| `ga` | Stage hunk under cursor |
+| `gu` | Unstage hunk (staged mode) |
+| `gx` | Discard hunk |
+| `gc` | Commit with message prompt |
 
 ## Comment Storage
 
