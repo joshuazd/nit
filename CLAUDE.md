@@ -47,4 +47,4 @@ The `./nit` bootstrap script auto-creates a venv at `~/.local/share/nit/venv` fo
 - Command palette is disabled (`COMMANDS = set()`)
 - Theme is `nord`
 - Comments persist to `.nit.json` at the git repo root (globally gitignored)
-- Claude reads comments via the `/review-feedback` skill
+- Claude reads comments via the `/nit` skill

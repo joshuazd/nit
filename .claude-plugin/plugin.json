@@ -1,0 +1,8 @@
+{
+  "name": "nit",
+  "description": "Review nit comments left in the TUI diff viewer",
+  "version": "0.2.0",
+  "author": { "name": "Joshua Zink-Duda" },
+  "homepage": "https://github.com/joshuazd/nit",
+  "repository": "https://github.com/joshuazd/nit"
+}
