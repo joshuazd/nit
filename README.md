@@ -7,15 +7,14 @@ Navigate diffs with vim-style keybindings, leave comments on specific lines, and
 ## Install
 
 ```bash
-pip install nit-cli
+pipx install nit-cli
 ```
 
 Or from source:
 
 ```bash
 git clone https://github.com/joshuazd/nit.git
-cd nit
-pip install .
+pipx install ./nit
 ```
 
 ## Usage
