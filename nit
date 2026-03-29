@@ -15,6 +15,7 @@ fi
 # Reinstall if package changed (dev convenience)
 if [[ "${NIT_PKG}/pyproject.toml" -nt "${VENV_DIR}/pyvenv.cfg" ]]; then
     "${VENV_DIR}/bin/pip" install --quiet -e "${NIT_PKG}"
+    touch "${VENV_DIR}/pyvenv.cfg"
 fi
 
 exec "${VENV_DIR}/bin/nit" "$@"

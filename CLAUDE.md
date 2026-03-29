@@ -45,6 +45,6 @@ The `./nit` bootstrap script auto-creates a venv at `~/.local/share/nit/venv` fo
 
 - All colors use Textual theme tokens in TCSS — inherits terminal color scheme
 - Command palette is disabled (`COMMANDS = set()`)
-- Theme is `nord`
+- Theme is `textual-ansi` with `ansi_color=True` (inherits terminal palette)
 - Comments persist to `.nit.json` at the git repo root (globally gitignored)
 - Claude reads comments via the `/nit` skill

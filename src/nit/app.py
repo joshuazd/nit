@@ -5,12 +5,15 @@ import os
 import subprocess
 from collections import Counter
 
+from rich.style import Style
 from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Footer, Input, Label, Static, Tree
+from textual.widgets._tree import TreeNode
 
 from . import comments as comments_mod
 from . import git
@@ -60,20 +63,41 @@ class FileTree(Tree):
     FileTree {
         background: $background;
     }
+    FileTree:focus {
+        background: $background;
+        background-tint: initial;
+    }
     FileTree > .tree--cursor {
-        background: $panel;
+        background: ansi_bright_black !important;
+        text-style: bold;
+    }
+    FileTree:focus > .tree--cursor {
+        background: ansi_bright_black !important;
         text-style: bold;
     }
     FileTree > .tree--highlight {
-        background: $accent 50%;
+        background: ansi_bright_black !important;
     }
     FileTree > .tree--highlight-line {
-        background: $accent 20%;
+        background: ansi_bright_black !important;
     }
     """
 
     ICON_NODE = ""
     ICON_NODE_EXPANDED = ""
+
+    def render_label(self, node: TreeNode, base_style: Style, style: Style) -> Text:
+        # Strip only foreground color to preserve label colors, keep bgcolor
+        style = Style(
+            bgcolor=style.bgcolor,
+            bold=style.bold,
+            italic=style.italic,
+            underline=style.underline,
+            link=style.link,
+            overline=style.overline,
+            strike=style.strike,
+        )
+        return super().render_label(node, base_style, style)
 
 
 class DiffLineWidget(Static):
@@ -140,18 +164,23 @@ class DiffView(VerticalScroll):
         color: $text-muted;
     }
     DiffLineWidget.hunk-header {
-        color: $accent;
+        color: ansi_magenta;
+        background: ansi_black;
         text-style: bold;
+        margin: 1 0 0 0;
+    }
+    DiffLineWidget.hunk-header.cursor {
+        background: ansi_bright_black;
     }
     DiffLineWidget.cursor {
-        background: $panel;
+        background: ansi_black;
     }
     DiffLineWidget.add.cursor {
-        background: $panel;
+        background: ansi_black;
         color: $success;
     }
     DiffLineWidget.remove.cursor {
-        background: $panel;
+        background: ansi_black;
         color: $error;
     }
     """
@@ -316,7 +345,7 @@ class NitApp(App):
     TITLE = "nit"
     COMMANDS = set()
     ENABLE_COMMAND_PALETTE = False
-    theme = "nord"
+    theme = "textual-ansi"
     CSS = """
     #frame {
         border: round $accent;
@@ -333,20 +362,20 @@ class NitApp(App):
         width: 1fr;
     }
     #seg-branch {
-        background: $accent;
-        color: $text;
+        background: ansi_magenta;
+        color: ansi_black;
     }
     #seg-mode {
         background: $secondary;
-        color: $text;
+        color: ansi_black;
     }
     #seg-files {
         background: $primary;
-        color: $text;
+        color: ansi_black;
     }
     #seg-comments {
         background: $warning;
-        color: $text;
+        color: ansi_black;
     }
     #layout {
         width: 100%;
@@ -358,8 +387,20 @@ class NitApp(App):
         border: round $border;
         overflow-x: hidden;
     }
+    #sidebar:focus {
+        border: round $border;
+    }
     DiffView {
         border: round $border;
+    }
+    Footer {
+        background: ansi_bright_black;
+    }
+    Footer .footer-key--key {
+        background: ansi_bright_black;
+    }
+    Footer .footer-key--description {
+        background: ansi_bright_black;
     }
     """
 
@@ -377,13 +418,16 @@ class NitApp(App):
         Binding("r", "refresh", "Refresh"),
         Binding("right_square_bracket", "next_comment", "]", show=False),
         Binding("left_square_bracket", "prev_comment", "[", show=False),
+        Binding("G", "cursor_end", "End", show=False),
     ]
 
     diff_mode: reactive[str] = reactive("branch")
 
     def __init__(self, cli_args: CLIArgs | None = None, *args, **kwargs) -> None:
+        kwargs.setdefault("ansi_color", True)
         super().__init__(*args, **kwargs)
         self._cli_args = cli_args or CLIArgs()
+        self._pending_g = False
         self.current_file: FileDiff | None = None
         self.file_diffs: list[FileDiff] = []
         self.comments: list[ReviewComment] = []
@@ -546,6 +590,29 @@ class NitApp(App):
 
     def action_cursor_up(self) -> None:
         self.query_one("#diff-view", DiffView).move_cursor(-1)
+
+    def action_cursor_end(self) -> None:
+        dv = self.query_one("#diff-view", DiffView)
+        if dv._line_widgets:
+            dv.cursor_index = len(dv._line_widgets) - 1
+
+    def on_key(self, event: "events.Key") -> None:
+        if self._pending_g:
+            self._pending_g = False
+            if event.key == "g":
+                self.action_cursor_start()
+                event.prevent_default()
+                event.stop()
+            return
+        if event.key == "g":
+            self._pending_g = True
+            event.prevent_default()
+            event.stop()
+
+    def action_cursor_start(self) -> None:
+        dv = self.query_one("#diff-view", DiffView)
+        if dv._line_widgets:
+            dv.cursor_index = 0
 
     def action_next_hunk(self) -> None:
         self.query_one("#diff-view", DiffView).jump_to_next_hunk(forward=True)
