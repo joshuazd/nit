@@ -2,6 +2,8 @@ import json
 
 from nit.comments import (
     comment_matches_line,
+    export_comments_json,
+    export_comments_markdown,
     load_comments,
     make_comment,
     save_comments,
@@ -114,3 +116,53 @@ def test_load_missing_comment_fields(tmp_path):
     loaded = load_comments(tmp_path)
     assert len(loaded) == 1
     assert loaded[0].file_path == "x.py"
+
+
+def _make_review_comment(**overrides):
+    defaults = dict(
+        file_path="src/app.py",
+        new_line_no=10,
+        old_line_no=None,
+        line_content="return result",
+        comment="Fix this",
+        hunk_context=["line1", "return result"],
+        timestamp="2025-01-15T10:00:00+00:00",
+        diff_mode="branch",
+    )
+    defaults.update(overrides)
+    return ReviewComment(**defaults)
+
+
+def test_export_comments_markdown_empty():
+    assert export_comments_markdown([]) == ""
+
+
+def test_export_comments_markdown():
+    comments = [
+        _make_review_comment(file_path="b.py", new_line_no=5, comment="second file"),
+        _make_review_comment(file_path="a.py", new_line_no=10, comment="note here"),
+        _make_review_comment(
+            file_path="a.py", new_line_no=None, old_line_no=3, comment="old line comment"
+        ),
+    ]
+    md = export_comments_markdown(comments)
+    assert md.startswith("# Code Review Comments")
+    # Files sorted alphabetically
+    assert md.index("## a.py") < md.index("## b.py")
+    assert "**L10**: note here" in md
+    assert "**old L3**: old line comment" in md
+    assert "**L5**: second file" in md
+    assert "```" in md  # code fence for line_content
+
+
+def test_export_comments_json():
+    comments = [
+        _make_review_comment(comment="test comment"),
+    ]
+    result = export_comments_json(comments)
+    parsed = json.loads(result)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 1
+    assert parsed[0]["comment"] == "test comment"
+    assert parsed[0]["file"] == "src/app.py"
+    assert parsed[0]["line"] == 10

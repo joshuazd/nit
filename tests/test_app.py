@@ -92,4 +92,19 @@ async def test_app_detached_head(mock_git, mock_comments):
     mock_git.get_current_branch.side_effect = Exception("not on branch")
     app = NitApp()
     async with app.run_test():
-        assert app.branch == ""
+        assert app.branch == "(detached HEAD)"
+
+
+async def test_g_chord_unrecognized_key_not_swallowed(mock_git, mock_comments):
+    app = NitApp()
+    async with app.run_test() as pilot:
+        # Press g — sets pending flag
+        await pilot.press("g")
+        assert app._pending_g is True
+        # Press unrecognized key — flag resets, key not swallowed
+        await pilot.press("z")
+        assert app._pending_g is False
+        # Valid chord still works after: gg = cursor to start
+        await pilot.press("g", "g")
+        dv = app.query_one("#diff-view")
+        assert dv.cursor_index == 0

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -360,9 +361,7 @@ class DiffView(VerticalScroll):
                 self.diff_lines.append(primary)
 
                 # Build Rich Text for the row
-                text = self._format_sbs_row(
-                    row, half, lang if row.row_type == "context" else None
-                )
+                text = self._format_sbs_row(row, half, lang if row.row_type == "context" else None)
                 w = DiffLineWidget(text)
 
                 w.add_class("sbs")
@@ -383,9 +382,7 @@ class DiffView(VerticalScroll):
                         block = CommentBlock(f"-- {c.comment}")
                         self.mount(block)
 
-    def _format_sbs_row(
-        self, row: SideBySideRow, half: int, language: str | None = None
-    ) -> Text:
+    def _format_sbs_row(self, row: SideBySideRow, half: int, language: str | None = None) -> Text:
         """Format a side-by-side row as Rich Text with per-side coloring."""
         if row.row_type == "hunk_header":
             left = row.left
@@ -729,7 +726,7 @@ class NitApp(App):
         try:
             self.branch = git.get_current_branch(self.repo_root)
         except Exception:
-            self.branch = ""
+            self.branch = "(detached HEAD)"
         self.base = git.get_main_branch(self.repo_root)
         if self._cli_args.mode:
             self.diff_mode = self._cli_args.mode
@@ -934,7 +931,7 @@ class NitApp(App):
                 action()
                 event.prevent_default()
                 event.stop()
-            return
+                return
         if event.key == "g":
             self._pending_g = True
             event.prevent_default()
@@ -1016,7 +1013,12 @@ class NitApp(App):
                     diff_mode=self.diff_mode,
                 )
                 self.comments.append(comment)
-                comments_mod.save_comments(self.repo_root, self.comments, self.branch, self.base)
+                try:
+                    comments_mod.save_comments(
+                        self.repo_root, self.comments, self.branch, self.base
+                    )
+                except Exception as e:
+                    self.notify(f"Failed to save comment: {e}", severity="error")
         saved_cursor = diff_view.cursor_index
         diff_view.hide_comment_input()
         if self.current_file:
@@ -1159,8 +1161,16 @@ class NitApp(App):
             self.notify("No comments to export", severity="warning")
             return
         text = comments_mod.export_comments_markdown(self.comments)
+        clip_cmd = None
+        for cmd in ("pbcopy", "xclip", "xsel"):
+            if shutil.which(cmd):
+                clip_cmd = [cmd] if cmd == "pbcopy" else [cmd, "-selection", "clipboard"]
+                break
+        if clip_cmd is None:
+            self.notify("No clipboard command found (pbcopy/xclip/xsel)", severity="error")
+            return
         try:
-            subprocess.run(["pbcopy"], input=text, text=True, check=True, timeout=5)
+            subprocess.run(clip_cmd, input=text, text=True, check=True, timeout=5)
             self.notify(f"Copied {len(self.comments)} comments to clipboard")
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             self.notify("Clipboard copy failed", severity="error")
