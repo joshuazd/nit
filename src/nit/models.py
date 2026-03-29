@@ -30,6 +30,13 @@ class FileDiff:
 
 
 @dataclass
+class SideBySideRow:
+    left: DiffLine | None  # old side (remove or context)
+    right: DiffLine | None  # new side (add or context)
+    row_type: str  # "context", "change", "hunk_header"
+
+
+@dataclass
 class ReviewComment:
     file_path: str
     new_line_no: int | None

@@ -70,6 +70,77 @@ def test_detached_head(git_repo):
     assert branch == ""
 
 
+GIT_ENV_KEYS = {
+    "GIT_AUTHOR_NAME": "test",
+    "GIT_AUTHOR_EMAIL": "t@t",
+    "GIT_COMMITTER_NAME": "test",
+    "GIT_COMMITTER_EMAIL": "t@t",
+}
+
+
+def _git_env(tmp_path):
+    return {
+        **GIT_ENV_KEYS,
+        "HOME": str(tmp_path),
+        "PATH": subprocess.check_output(["bash", "-c", "echo $PATH"], text=True).strip(),
+    }
+
+
+def test_get_staged_diff_empty(git_repo):
+    diff = git.get_staged_diff(cwd=git_repo)
+    assert diff == ""
+
+
+def test_get_staged_diff_with_staged_changes(git_repo):
+    (git_repo / "file.txt").write_text("staged content\n")
+    subprocess.run(["git", "add", "file.txt"], cwd=git_repo, capture_output=True)
+    diff = git.get_staged_diff(cwd=git_repo)
+    assert "staged content" in diff
+
+
+def test_apply_patch_stage_hunk(git_repo):
+    (git_repo / "file.txt").write_text("changed\n")
+    diff = git.get_unstaged_diff(cwd=git_repo)
+    # Apply the patch to staging area
+    git.apply_patch(diff, cwd=git_repo, cached=True)
+    staged = git.get_staged_diff(cwd=git_repo)
+    assert "changed" in staged
+    # Unstaged should now be empty
+    unstaged = git.get_unstaged_diff(cwd=git_repo)
+    assert unstaged == ""
+
+
+def test_apply_patch_unstage_hunk(git_repo):
+    (git_repo / "file.txt").write_text("changed\n")
+    subprocess.run(["git", "add", "file.txt"], cwd=git_repo, capture_output=True)
+    staged = git.get_staged_diff(cwd=git_repo)
+    # Reverse-apply to unstage
+    git.apply_patch(staged, cwd=git_repo, cached=True, reverse=True)
+    assert git.get_staged_diff(cwd=git_repo) == ""
+    assert "changed" in git.get_unstaged_diff(cwd=git_repo)
+
+
+def test_apply_patch_discard_hunk(git_repo):
+    (git_repo / "file.txt").write_text("changed\n")
+    diff = git.get_unstaged_diff(cwd=git_repo)
+    # Reverse-apply to discard
+    git.apply_patch(diff, cwd=git_repo, reverse=True)
+    assert (git_repo / "file.txt").read_text() == "hello\n"
+
+
+def test_commit(git_repo):
+    (git_repo / "file.txt").write_text("committed\n")
+    subprocess.run(["git", "add", "file.txt"], cwd=git_repo, capture_output=True)
+    git.commit("test commit", cwd=git_repo)
+    log = subprocess.check_output(
+        ["git", "log", "--oneline", "-1"],
+        cwd=git_repo,
+        text=True,
+        env=_git_env(git_repo),
+    )
+    assert "test commit" in log
+
+
 def test_timeout_raises(monkeypatch):
     def mock_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="git", timeout=30)

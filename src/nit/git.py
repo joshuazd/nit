@@ -81,6 +81,40 @@ def get_all_uncommitted_diff(cwd: Path | None = None, path_filter: str | None = 
     return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
 
 
+def get_staged_diff(cwd: Path | None = None, path_filter: str | None = None) -> str:
+    cmd = ["git", "diff", "--cached"]
+    return _run(_append_path_filter(cmd, path_filter), cwd=cwd)
+
+
+def apply_patch(
+    patch_text: str, cwd: Path | None = None, cached: bool = False, reverse: bool = False
+) -> str:
+    cmd = ["git", "apply"]
+    if cached:
+        cmd.append("--cached")
+    if reverse:
+        cmd.append("--reverse")
+    logger.debug("Running: %s (with stdin patch)", " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd,
+            input=patch_text,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=GIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise subprocess.CalledProcessError(1, cmd, "", "Command timed out")
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+    return result.stdout
+
+
+def commit(message: str, cwd: Path | None = None) -> str:
+    return _run(["git", "commit", "-m", message], cwd=cwd)
+
+
 def get_commit_range_diff(
     commit_range: str, cwd: Path | None = None, path_filter: str | None = None
 ) -> str:

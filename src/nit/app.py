@@ -18,9 +18,9 @@ from textual.widgets._tree import TreeNode
 from . import comments as comments_mod
 from . import git
 from .cli import CLIArgs
-from .diff_parser import parse_diff
+from .diff_parser import align_hunk_lines, build_patch, parse_diff, word_diff_segments
+from .models import DiffHunk, FileDiff, ReviewComment, SideBySideRow
 from .models import DiffLine as DiffLineModel
-from .models import FileDiff, ReviewComment
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,11 @@ def _file_label(fd: FileDiff, comment_count: int) -> Text:
 
 # --- Diff mode enum ---
 
-DIFF_MODES = ["branch", "unstaged", "all"]
+DIFF_MODES = ["branch", "unstaged", "staged", "all"]
 DIFF_MODE_LABELS = {
     "branch": "branch diff",
     "unstaged": "unstaged",
+    "staged": "staged",
     "all": "all uncommitted",
 }
 
@@ -141,6 +142,27 @@ class InlineCommentInput(Input):
         diff_view.hide_comment_input()
 
 
+class CommitInput(Input):
+    """Input for entering commit messages."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", priority=True),
+    ]
+
+    DEFAULT_CSS = """
+    CommitInput {
+        dock: bottom;
+        margin: 0 2;
+        border: round $accent;
+        width: 1fr;
+    }
+    """
+
+    def action_cancel(self) -> None:
+        app: NitApp = self.app  # type: ignore[assignment]
+        app.hide_commit_input()
+
+
 class DiffView(VerticalScroll):
     """Scrollable diff view with cursor tracking."""
 
@@ -175,6 +197,10 @@ class DiffView(VerticalScroll):
     DiffLineWidget.cursor {
         background: ansi_black;
     }
+    DiffLineWidget.sbs {
+        max-height: 1;
+        overflow-x: hidden;
+    }
     DiffLineWidget.add.cursor {
         background: ansi_black;
         color: $success;
@@ -186,16 +212,24 @@ class DiffView(VerticalScroll):
     """
 
     cursor_index: reactive[int] = reactive(0)
+    side_by_side: reactive[bool] = reactive(False)
+    word_diff: reactive[bool] = reactive(False)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.diff_lines: list[DiffLineModel] = []
         self._line_widgets: list[DiffLineWidget] = []
         self._active_input: InlineCommentInput | None = None
+        self._line_hunk_map: list[DiffHunk] = []
+        self._sbs_rows: list[SideBySideRow] = []
+        self._current_file_diff: FileDiff | None = None
 
     def clear_diff(self) -> None:
         self.diff_lines = []
         self._line_widgets = []
+        self._line_hunk_map = []
+        self._sbs_rows = []
+        self._current_file_diff = None
         self.cursor_index = 0
         self.remove_children()
 
@@ -208,6 +242,9 @@ class DiffView(VerticalScroll):
         self.remove_children()
         self.diff_lines = []
         self._line_widgets = []
+        self._line_hunk_map = []
+        self._sbs_rows = []
+        self._current_file_diff = file_diff
 
         # Build a lookup of comments by line number
         comment_map: dict[int | None, list[ReviewComment]] = {}
@@ -220,12 +257,59 @@ class DiffView(VerticalScroll):
             self.mount(w)
             return
 
+        if self.side_by_side:
+            self._load_side_by_side(file_diff, comment_map)
+        else:
+            self._load_unified(file_diff, comment_map)
+
+        start = min(restore_cursor, len(self._line_widgets) - 1) if self._line_widgets else 0
+        self.cursor_index = start
+        if self._line_widgets:
+            self._line_widgets[start].add_class("cursor")
+
+    def _load_unified(
+        self,
+        file_diff: FileDiff,
+        comment_map: dict[int | None, list[ReviewComment]],
+    ) -> None:
+        # Pre-compute word diff pairs: map line index → paired line for remove/add
+        word_pairs: dict[int, DiffLineModel] = {}
+        if self.word_diff:
+            all_lines = [dl for hunk in file_diff.hunks for dl in hunk.lines]
+            i = 0
+            while i < len(all_lines):
+                if all_lines[i].line_type == "remove":
+                    # Collect consecutive removes then adds
+                    removes = []
+                    while i < len(all_lines) and all_lines[i].line_type == "remove":
+                        removes.append(i)
+                        i += 1
+                    adds = []
+                    while i < len(all_lines) and all_lines[i].line_type == "add":
+                        adds.append(i)
+                        i += 1
+                    # Pair them up
+                    for r_idx, a_idx in zip(removes, adds):
+                        word_pairs[r_idx] = all_lines[a_idx]
+                        word_pairs[a_idx] = all_lines[r_idx]
+                else:
+                    i += 1
+
+        flat_idx = 0
         for hunk in file_diff.hunks:
             for dl in hunk.lines:
                 self.diff_lines.append(dl)
+                self._line_hunk_map.append(hunk)
                 line_no_str = self._format_line_no(dl)
                 prefix = self._format_prefix(dl)
-                text = f"{line_no_str}{prefix}{dl.content}"
+
+                if self.word_diff and flat_idx in word_pairs:
+                    text = self._format_word_diff_line(
+                        dl, word_pairs[flat_idx], line_no_str, prefix
+                    )
+                else:
+                    text = f"{line_no_str}{prefix}{dl.content}"
+
                 w = DiffLineWidget(text)
                 w.add_class(dl.line_type.replace("_", "-"))
                 self._line_widgets.append(w)
@@ -238,10 +322,110 @@ class DiffView(VerticalScroll):
                         block = CommentBlock(f"-- {c.comment}")
                         self.mount(block)
 
-        start = min(restore_cursor, len(self._line_widgets) - 1) if self._line_widgets else 0
-        self.cursor_index = start
-        if self._line_widgets:
-            self._line_widgets[start].add_class("cursor")
+                flat_idx += 1
+
+    def _load_side_by_side(
+        self,
+        file_diff: FileDiff,
+        comment_map: dict[int | None, list[ReviewComment]],
+    ) -> None:
+        half = max(40, (self.size.width - 15) // 2)  # each side's content width
+
+        for hunk in file_diff.hunks:
+            rows = align_hunk_lines(hunk.lines)
+            for row in rows:
+                self._sbs_rows.append(row)
+                self._line_hunk_map.append(hunk)
+
+                # Primary DiffLine for cursor/comment matching
+                primary = row.right or row.left
+                assert primary is not None
+                self.diff_lines.append(primary)
+
+                # Build Rich Text for the row
+                text = self._format_sbs_row(row, half)
+                w = DiffLineWidget(text)
+
+                w.add_class("sbs")
+                if row.row_type == "hunk_header":
+                    w.add_class("hunk-header")
+                elif row.row_type == "context":
+                    w.add_class("context")
+                # For change rows, coloring is in the Rich Text itself
+
+                self._line_widgets.append(w)
+                self.mount(w)
+
+                # Render inline comments
+                line_key = (
+                    primary.new_line_no if primary.new_line_no is not None else primary.old_line_no
+                )
+                for c in comment_map.get(line_key, []):
+                    if comments_mod.comment_matches_line(c, primary):
+                        block = CommentBlock(f"-- {c.comment}")
+                        self.mount(block)
+
+    def _format_sbs_row(self, row: SideBySideRow, half: int) -> Text:
+        """Format a side-by-side row as Rich Text with per-side coloring."""
+        if row.row_type == "hunk_header":
+            left = row.left
+            assert left is not None
+            return Text(left.content)
+
+        sep = " │ "
+        text = Text()
+
+        # Compute word diff segments if applicable
+        do_word_diff = (
+            self.word_diff
+            and row.row_type == "change"
+            and row.left is not None
+            and row.right is not None
+        )
+        if do_word_diff:
+            old_segs, new_segs = word_diff_segments(row.left.content, row.right.content)
+
+        # Left side
+        if row.left:
+            old_no = str(row.left.old_line_no) if row.left.old_line_no is not None else ""
+            prefix = "-" if row.left.line_type == "remove" else " "
+            left_style = "red" if row.left.line_type == "remove" else ""
+            text.append(f"{old_no:>4} {prefix}", style=left_style)
+            if do_word_diff:
+                left_len = 0
+                for seg_text, changed in old_segs:
+                    chunk = seg_text[: half - left_len]
+                    text.append(chunk, style="bold reverse red" if changed else "red")
+                    left_len += len(chunk)
+                    if left_len >= half:
+                        break
+                text.append(" " * max(0, half - left_len))
+            else:
+                left_content = row.left.content[:half]
+                style = "red" if row.left.line_type == "remove" else ""
+                text.append(f"{left_content:{half}}", style=style)
+        else:
+            text.append(f"{'':>4} {'':>{half + 1}}")
+
+        text.append(sep, style="dim")
+
+        # Right side
+        if row.right:
+            new_no = str(row.right.new_line_no) if row.right.new_line_no is not None else ""
+            prefix = "+" if row.right.line_type == "add" else " "
+            right_style = "green" if row.right.line_type == "add" else ""
+            text.append(f"{new_no:>4} {prefix}", style=right_style)
+            if do_word_diff:
+                for seg_text, changed in new_segs:
+                    text.append(seg_text[:half], style="bold reverse green" if changed else "green")
+            else:
+                right_content = row.right.content[:half]
+                style = "green" if row.right.line_type == "add" else ""
+                text.append(right_content, style=style)
+        else:
+            text.append(f"{'':>4} ")
+
+        return text
 
     def _format_line_no(self, dl: DiffLineModel) -> str:
         old = str(dl.old_line_no) if dl.old_line_no is not None else ""
@@ -258,6 +442,38 @@ class DiffView(VerticalScroll):
         elif dl.line_type == "hunk_header":
             return ""
         return " "
+
+    def _format_word_diff_line(
+        self,
+        dl: DiffLineModel,
+        pair: DiffLineModel,
+        line_no_str: str,
+        prefix: str,
+    ) -> Text:
+        """Render a line with word-level diff highlighting."""
+        if dl.line_type == "remove":
+            old_segs, _ = word_diff_segments(dl.content, pair.content)
+            base_style = "red"
+            highlight_style = "bold reverse red"
+            segs = old_segs
+        else:
+            _, new_segs = word_diff_segments(pair.content, dl.content)
+            base_style = "green"
+            highlight_style = "bold reverse green"
+            segs = new_segs
+
+        text = Text()
+        text.append(f"{line_no_str}{prefix}", style=base_style)
+        for seg_text, changed in segs:
+            text.append(seg_text, style=highlight_style if changed else base_style)
+        return text
+
+    def get_current_hunk(self) -> tuple[FileDiff, DiffHunk] | None:
+        if not self._line_hunk_map or not self._current_file_diff:
+            return None
+        if 0 <= self.cursor_index < len(self._line_hunk_map):
+            return (self._current_file_diff, self._line_hunk_map[self.cursor_index])
+        return None
 
     def watch_cursor_index(self, old: int, new: int) -> None:
         if not self._line_widgets:
@@ -419,6 +635,8 @@ class NitApp(App):
         Binding("right_square_bracket", "next_comment", "]", show=False),
         Binding("left_square_bracket", "prev_comment", "[", show=False),
         Binding("G", "cursor_end", "End", show=False),
+        Binding("s", "toggle_side_by_side", "Split"),
+        Binding("w", "toggle_word_diff", "Word diff"),
     ]
 
     diff_mode: reactive[str] = reactive("branch")
@@ -428,6 +646,7 @@ class NitApp(App):
         super().__init__(*args, **kwargs)
         self._cli_args = cli_args or CLIArgs()
         self._pending_g = False
+        self._commit_input: CommitInput | None = None
         self.current_file: FileDiff | None = None
         self.file_diffs: list[FileDiff] = []
         self.comments: list[ReviewComment] = []
@@ -485,6 +704,8 @@ class NitApp(App):
                 raw = git.get_branch_diff(cwd, path_filter)
             elif self.diff_mode == "unstaged":
                 raw = git.get_unstaged_diff(cwd, path_filter)
+            elif self.diff_mode == "staged":
+                raw = git.get_staged_diff(cwd, path_filter)
             else:
                 raw = git.get_all_uncommitted_diff(cwd, path_filter)
         except subprocess.CalledProcessError as e:
@@ -599,8 +820,16 @@ class NitApp(App):
     def on_key(self, event: "events.Key") -> None:
         if self._pending_g:
             self._pending_g = False
-            if event.key == "g":
-                self.action_cursor_start()
+            g_actions = {
+                "g": self.action_cursor_start,
+                "a": self._action_stage_hunk,
+                "u": self._action_unstage_hunk,
+                "x": self._action_discard_hunk,
+                "c": self._action_commit_prompt,
+            }
+            action = g_actions.get(event.key)
+            if action:
+                action()
                 event.prevent_default()
                 event.stop()
             return
@@ -658,6 +887,17 @@ class NitApp(App):
         diff_view.show_comment_input()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        if isinstance(event.input, CommitInput):
+            msg = event.value.strip()
+            self.hide_commit_input()
+            if msg and self.repo_root:
+                try:
+                    git.commit(msg, cwd=self.repo_root)
+                    self.notify("Committed")
+                except subprocess.CalledProcessError as e:
+                    self.notify(f"Commit failed: {(e.stderr or '').strip()}", severity="error")
+                self._load_diff()
+            return
         if not isinstance(event.input, InlineCommentInput):
             return
         diff_view = self.query_one("#diff-view", DiffView)
@@ -682,6 +922,93 @@ class NitApp(App):
             diff_view.load_file_diff(self.current_file, file_comments, restore_cursor=saved_cursor)
             self._update_status()
             self._refresh_file_labels()
+
+    def action_toggle_word_diff(self) -> None:
+        dv = self.query_one("#diff-view", DiffView)
+        dv.word_diff = not dv.word_diff
+        if self.current_file:
+            saved_cursor = dv.cursor_index
+            file_comments = [c for c in self.comments if c.file_path == self.current_file.path]
+            dv.load_file_diff(self.current_file, file_comments, restore_cursor=saved_cursor)
+
+    def action_toggle_side_by_side(self) -> None:
+        dv = self.query_one("#diff-view", DiffView)
+        dv.side_by_side = not dv.side_by_side
+        if self.current_file:
+            saved_cursor = dv.cursor_index
+            file_comments = [c for c in self.comments if c.file_path == self.current_file.path]
+            dv.load_file_diff(self.current_file, file_comments, restore_cursor=saved_cursor)
+
+    # --- Git operations (g-prefixed chords) ---
+
+    def _action_stage_hunk(self) -> None:
+        if self.diff_mode not in ("unstaged", "all"):
+            self.notify("Stage: switch to unstaged/all mode", severity="warning")
+            return
+        dv = self.query_one("#diff-view", DiffView)
+        result = dv.get_current_hunk()
+        if result is None:
+            return
+        file_diff, hunk = result
+        patch = build_patch(file_diff, hunk)
+        try:
+            git.apply_patch(patch, cwd=self.repo_root, cached=True)
+            self.notify("Hunk staged")
+        except subprocess.CalledProcessError as e:
+            self.notify(f"Stage failed: {(e.stderr or '').strip()}", severity="error")
+            return
+        self._load_diff()
+
+    def _action_unstage_hunk(self) -> None:
+        if self.diff_mode != "staged":
+            self.notify("Unstage: switch to staged mode", severity="warning")
+            return
+        dv = self.query_one("#diff-view", DiffView)
+        result = dv.get_current_hunk()
+        if result is None:
+            return
+        file_diff, hunk = result
+        patch = build_patch(file_diff, hunk)
+        try:
+            git.apply_patch(patch, cwd=self.repo_root, cached=True, reverse=True)
+            self.notify("Hunk unstaged")
+        except subprocess.CalledProcessError as e:
+            self.notify(f"Unstage failed: {(e.stderr or '').strip()}", severity="error")
+            return
+        self._load_diff()
+
+    def _action_discard_hunk(self) -> None:
+        if self.diff_mode not in ("unstaged", "all"):
+            self.notify("Discard: switch to unstaged/all mode", severity="warning")
+            return
+        dv = self.query_one("#diff-view", DiffView)
+        result = dv.get_current_hunk()
+        if result is None:
+            return
+        file_diff, hunk = result
+        patch = build_patch(file_diff, hunk)
+        try:
+            git.apply_patch(patch, cwd=self.repo_root, reverse=True)
+            self.notify("Hunk discarded")
+        except subprocess.CalledProcessError as e:
+            self.notify(f"Discard failed: {(e.stderr or '').strip()}", severity="error")
+            return
+        self._load_diff()
+
+    def _action_commit_prompt(self) -> None:
+        if self._commit_input is not None:
+            return
+        self._commit_input = CommitInput(
+            placeholder="commit message (enter to commit, esc to cancel)"
+        )
+        self.mount(self._commit_input, before=self.query_one(Footer))
+        self._commit_input.focus()
+
+    def hide_commit_input(self) -> None:
+        if self._commit_input is not None:
+            self._commit_input.remove()
+            self._commit_input = None
+            self.query_one("#diff-view", DiffView).focus()
 
     def action_delete_comment(self) -> None:
         diff_view = self.query_one("#diff-view", DiffView)
