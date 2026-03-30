@@ -26,5 +26,5 @@ release: test lint
 	fi
 	git tag "v$(VERSION)"
 	git push origin "v$(VERSION)"
-	gh release create "v$(VERSION)" --title "v$(VERSION)" --generate-notes
+	gh release create "v$(VERSION)" --title "v$(VERSION)" --notes "$$(git log --format='- %s' $$(git describe --tags --abbrev=0 HEAD^)..HEAD)"
 	@echo "Release created. CI will publish to PyPI and update Homebrew."
