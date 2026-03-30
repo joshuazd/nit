@@ -1,0 +1,13 @@
+{
+  "name": "nit",
+  "owner": {
+    "name": "Joshua Zink-Duda"
+  },
+  "plugins": [
+    {
+      "name": "nit",
+      "source": "../",
+      "description": "Review nit comments left in the TUI diff viewer"
+    }
+  ]
+}
