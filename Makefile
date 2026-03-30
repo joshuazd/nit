@@ -13,6 +13,7 @@ test:
 
 lint:
 	$(PYTHON) -m ruff check src/ tests/
+	$(PYTHON) -m ruff format --check src/ tests/
 
 clean:
 	rm -rf $(VENV)
