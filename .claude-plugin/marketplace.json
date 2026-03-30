@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "nit",
-      "source": "./",
+      "source": "./plugin",
       "description": "Review nit comments left in the TUI diff viewer"
     }
   ]
