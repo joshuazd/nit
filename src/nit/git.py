@@ -98,12 +98,25 @@ def get_unstaged_diff(
     return _run(cmd, cwd=cwd)
 
 
-def get_all_uncommitted_diff(
+def get_upstream_ref(cwd: Path | None = None) -> str | None:
+    """Return the upstream tracking ref, or None if not set."""
+    try:
+        return _run(
+            ["git", "rev-parse", "--abbrev-ref", "@{upstream}"], cwd=cwd
+        ).strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def get_unpushed_diff(
     cwd: Path | None = None,
     path_filter: str | None = None,
     ignore_whitespace: bool = False,
 ) -> str:
-    cmd = _build_diff_cmd(["git", "diff", "HEAD"], ignore_whitespace, path_filter)
+    upstream = get_upstream_ref(cwd)
+    if upstream is None:
+        raise subprocess.CalledProcessError(1, "git", stderr="No upstream branch set")
+    cmd = _build_diff_cmd(["git", "diff", upstream], ignore_whitespace, path_filter)
     return _run(cmd, cwd=cwd)
 
 

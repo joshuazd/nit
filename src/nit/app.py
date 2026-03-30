@@ -52,7 +52,7 @@ DIFF_MODE_LABELS = {
     "branch": "branch diff",
     "unstaged": "unstaged",
     "staged": "staged",
-    "all": "all uncommitted",
+    "all": "unpushed",
 }
 
 
@@ -803,7 +803,7 @@ class NitApp(App):
             elif self.diff_mode == "staged":
                 return git.get_staged_diff(cwd, path_filter, ignore_whitespace=ws)
             else:
-                return git.get_all_uncommitted_diff(cwd, path_filter, ignore_whitespace=ws)
+                return git.get_unpushed_diff(cwd, path_filter, ignore_whitespace=ws)
         except subprocess.CalledProcessError as e:
             msg = (e.stderr or "").strip() or "Failed to load diff"
             logger.warning("Git diff failed: %s", msg)
