@@ -43,15 +43,16 @@ def get_current_branch(cwd: Path | None = None) -> str:
 
 def get_main_branch(cwd: Path | None = None) -> str:
     for name in ("main", "master"):
-        result = subprocess.run(
-            ["git", "rev-parse", "--verify", f"refs/heads/{name}"],
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-            timeout=GIT_TIMEOUT,
-        )
-        if result.returncode == 0:
-            return name
+        for ref in (f"refs/remotes/origin/{name}", f"refs/heads/{name}"):
+            result = subprocess.run(
+                ["git", "rev-parse", "--verify", ref],
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=GIT_TIMEOUT,
+            )
+            if result.returncode == 0:
+                return f"origin/{name}" if ref.startswith("refs/remotes") else name
     return "main"
 
 

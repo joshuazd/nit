@@ -28,8 +28,21 @@ def test_get_current_branch(git_repo):
     assert branch == "main"
 
 
-def test_get_main_branch(git_repo):
+def test_get_main_branch_local_only(git_repo):
     assert git.get_main_branch(cwd=git_repo) == "main"
+
+
+def test_get_main_branch_prefers_remote(git_repo):
+    # Add a fake remote ref for origin/main
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://example.com/repo.git"],
+        cwd=git_repo, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+        cwd=git_repo, capture_output=True,
+    )
+    assert git.get_main_branch(cwd=git_repo) == "origin/main"
 
 
 def test_get_unstaged_diff_empty(git_repo):

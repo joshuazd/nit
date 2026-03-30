@@ -614,6 +614,7 @@ class NitApp(App):
         padding: 0 1;
         text-style: bold;
         width: 1fr;
+        overflow: hidden;
     }
     #seg-branch {
         background: ansi_magenta;
@@ -831,6 +832,7 @@ class NitApp(App):
         comment_counts = Counter(c.file_path for c in self.comments)
 
         dir_nodes: dict[str, object] = {}
+        tree_order: list[int] = []
         for dirname in sorted(dirs):
             parts = dirname.split("/")
             current = tree.root
@@ -847,6 +849,9 @@ class NitApp(App):
                 label = _file_label(fd, comment_counts[fd.path])
                 leaf = current.add_leaf(label)
                 leaf.data = i
+                tree_order.append(i)
+
+        self._tree_order = tree_order
 
     def _update_file_list(self) -> None:
         self._build_file_tree()
@@ -874,7 +879,10 @@ class NitApp(App):
             mode_label = DIFF_MODE_LABELS.get(self.diff_mode, self.diff_mode)
         n_comments = len(self.comments)
         n_files = len(self.file_diffs)
-        self.query_one("#seg-branch", Label).update(f"⎇ {self.branch}")
+        branch_display = self.branch
+        if len(branch_display) > 30:
+            branch_display = branch_display[:29] + "…"
+        self.query_one("#seg-branch", Label).update(f"⎇ {branch_display}")
         ws_indicator = " [no-ws]" if self.ignore_whitespace else ""
         self.query_one("#seg-mode", Label).update(f"⇄  {mode_label}{ws_indicator}")
         self.query_one("#seg-files", Label).update(f"▤ {n_files} files")
@@ -949,14 +957,28 @@ class NitApp(App):
         self.query_one("#diff-view", DiffView).jump_to_next_hunk(forward=False)
 
     def action_next_file(self) -> None:
-        if self._file_index < len(self.file_diffs) - 1:
-            self._file_index += 1
-            self._select_file(self._file_index)
+        order = getattr(self, "_tree_order", [])
+        if not order:
+            return
+        try:
+            pos = order.index(self._file_index)
+        except ValueError:
+            pos = -1
+        new_pos = (pos + 1) % len(order)
+        self._file_index = order[new_pos]
+        self._select_file(self._file_index)
 
     def action_prev_file(self) -> None:
-        if self._file_index > 0:
-            self._file_index -= 1
-            self._select_file(self._file_index)
+        order = getattr(self, "_tree_order", [])
+        if not order:
+            return
+        try:
+            pos = order.index(self._file_index)
+        except ValueError:
+            pos = 0
+        new_pos = (pos - 1) % len(order)
+        self._file_index = order[new_pos]
+        self._select_file(self._file_index)
 
     def action_next_comment(self) -> None:
         self.query_one("#diff-view", DiffView).jump_to_next_comment(forward=True)
