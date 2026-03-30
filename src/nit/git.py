@@ -101,9 +101,7 @@ def get_unstaged_diff(
 def get_upstream_ref(cwd: Path | None = None) -> str | None:
     """Return the upstream tracking ref, or None if not set."""
     try:
-        return _run(
-            ["git", "rev-parse", "--abbrev-ref", "@{upstream}"], cwd=cwd
-        ).strip()
+        return _run(["git", "rev-parse", "--abbrev-ref", "@{upstream}"], cwd=cwd).strip()
     except subprocess.CalledProcessError:
         return None
 
