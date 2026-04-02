@@ -740,6 +740,7 @@ class NitApp(App):
             self.notify("Could not load .nit.json — starting with no comments", severity="warning")
             self.comments = []
         self._load_diff()
+        self.call_after_refresh(self._update_status)
         self.set_interval(5.0, self._auto_refresh_poll)
 
     def _mount_file_review(self) -> None:
@@ -765,6 +766,10 @@ class NitApp(App):
         content = p.read_text()
         self.file_diffs = file_to_diff(str(p), content)
         self._update_file_list()
+        self._update_status()
+        self.call_after_refresh(self._update_status)
+
+    def on_resize(self, event) -> None:
         self._update_status()
 
     def _auto_refresh_poll(self) -> None:
@@ -797,13 +802,16 @@ class NitApp(App):
                     self._cli_args.commit_range, cwd, path_filter, ignore_whitespace=ws
                 )
             elif self.diff_mode == "branch":
-                return git.get_branch_diff(cwd, path_filter, ignore_whitespace=ws)
+                diff = git.get_branch_diff(cwd, path_filter, ignore_whitespace=ws)
             elif self.diff_mode == "unstaged":
-                return git.get_unstaged_diff(cwd, path_filter, ignore_whitespace=ws)
+                diff = git.get_unstaged_diff(cwd, path_filter, ignore_whitespace=ws)
             elif self.diff_mode == "staged":
                 return git.get_staged_diff(cwd, path_filter, ignore_whitespace=ws)
             else:
-                return git.get_unpushed_diff(cwd, path_filter, ignore_whitespace=ws)
+                diff = git.get_unpushed_diff(cwd, path_filter, ignore_whitespace=ws)
+            # Append untracked files for non-staged, non-range modes
+            untracked = git.get_untracked_diff(cwd, path_filter)
+            return diff + untracked
         except subprocess.CalledProcessError as e:
             msg = (e.stderr or "").strip() or "Failed to load diff"
             logger.warning("Git diff failed: %s", msg)
@@ -879,10 +887,13 @@ class NitApp(App):
             mode_label = DIFF_MODE_LABELS.get(self.diff_mode, self.diff_mode)
         n_comments = len(self.comments)
         n_files = len(self.file_diffs)
+        seg = self.query_one("#seg-branch", Label)
+        prefix = "⎇ "
+        avail = seg.content_size.width - len(prefix) - 1
         branch_display = self.branch
-        if len(branch_display) > 30:
-            branch_display = branch_display[:29] + "…"
-        self.query_one("#seg-branch", Label).update(f"⎇ {branch_display}")
+        if avail > 0 and len(branch_display) > avail:
+            branch_display = branch_display[: avail - 1] + "…"
+        seg.update(f"{prefix}{branch_display}")
         ws_indicator = " [no-ws]" if self.ignore_whitespace else ""
         self.query_one("#seg-mode", Label).update(f"⇄  {mode_label}{ws_indicator}")
         self.query_one("#seg-files", Label).update(f"▤ {n_files} files")

@@ -156,6 +156,43 @@ def commit(message: str, cwd: Path | None = None) -> str:
     return _run(["git", "commit", "-m", message], cwd=cwd)
 
 
+def get_untracked_files(cwd: Path | None = None) -> list[str]:
+    """Return list of untracked file paths (respecting .gitignore)."""
+    out = _run(["git", "ls-files", "--others", "--exclude-standard"], cwd=cwd)
+    return [f for f in out.splitlines() if f]
+
+
+def _untracked_file_diff(path: str, cwd: Path | None = None) -> str:
+    """Generate a unified diff for an untracked file as if it were newly added."""
+    full = (cwd or Path.cwd()) / path
+    try:
+        content = full.read_text(errors="replace")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    lines = content.splitlines()
+    n = len(lines)
+    parts = [
+        f"diff --git a/{path} b/{path}",
+        "new file mode 100644",
+        "--- /dev/null",
+        f"+++ b/{path}",
+        f"@@ -0,0 +1,{n} @@",
+    ]
+    for line in lines:
+        parts.append(f"+{line}")
+    return "\n".join(parts) + "\n"
+
+
+def get_untracked_diff(
+    cwd: Path | None = None, path_filter: str | None = None
+) -> str:
+    """Return synthetic diff text for all untracked files."""
+    files = get_untracked_files(cwd)
+    if path_filter:
+        files = [f for f in files if f.startswith(path_filter) or f == path_filter]
+    return "".join(_untracked_file_diff(f, cwd) for f in files)
+
+
 def get_commit_range_diff(
     commit_range: str,
     cwd: Path | None = None,

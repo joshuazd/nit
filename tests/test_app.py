@@ -29,6 +29,7 @@ def mock_git():
         mock.get_branch_diff.return_value = SAMPLE_DIFF
         mock.get_unstaged_diff.return_value = ""
         mock.get_unpushed_diff.return_value = ""
+        mock.get_untracked_diff.return_value = ""
         yield mock
 
 
