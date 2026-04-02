@@ -613,24 +613,29 @@ class NitApp(App):
     .status-segment {
         padding: 0 1;
         text-style: bold;
-        width: 1fr;
         overflow: hidden;
     }
     #seg-branch {
         background: ansi_magenta;
         color: ansi_black;
+        width: 1fr;
     }
     #seg-mode {
         background: $secondary;
         color: ansi_black;
+        width: 26;
     }
     #seg-files {
         background: $primary;
         color: ansi_black;
+        min-width: 14;
+        width: auto;
     }
     #seg-comments {
         background: $warning;
         color: ansi_black;
+        min-width: 18;
+        width: auto;
     }
     #layout {
         width: 100%;
