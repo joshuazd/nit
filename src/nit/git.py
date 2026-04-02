@@ -183,9 +183,7 @@ def _untracked_file_diff(path: str, cwd: Path | None = None) -> str:
     return "\n".join(parts) + "\n"
 
 
-def get_untracked_diff(
-    cwd: Path | None = None, path_filter: str | None = None
-) -> str:
+def get_untracked_diff(cwd: Path | None = None, path_filter: str | None = None) -> str:
     """Return synthetic diff text for all untracked files."""
     files = get_untracked_files(cwd)
     if path_filter:
