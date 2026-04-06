@@ -65,8 +65,4 @@ release release-patch release-minor release-major: lint test
 	@if git rev-parse "v$(v)" >/dev/null 2>&1; then echo "Error: tag v$(v) already exists."; exit 1; fi
 	git tag "v$(v)"
 	git push origin "v$(v)"
-	goreleaser release --clean
-
-## Dry-run release (test goreleaser config without publishing)
-release-dry:
-	goreleaser release --snapshot --clean
+	gh release create "v$(v)" --title "v$(v)" --generate-notes
