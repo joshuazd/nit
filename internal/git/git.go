@@ -212,7 +212,7 @@ func isBinaryFile(path string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	buf := make([]byte, 8192)
 	n, _ := f.Read(buf)
 	return bytes.Contains(buf[:n], []byte{0})

@@ -112,11 +112,11 @@ func Save(repoRoot string, comments []models.ReviewComment, branch, base string)
 	tmpPath := tmp.Name()
 	defer func() {
 		// Clean up on error
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {

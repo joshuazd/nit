@@ -1,3 +1,5 @@
+version: "2"
+
 linters:
   enable:
     - errcheck
@@ -5,14 +7,11 @@ linters:
     - staticcheck
     - unused
     - ineffassign
-    - gosimple
-
-linters-settings:
-  errcheck:
-    check-blank: false
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+  settings:
+    errcheck:
+      check-blank: false
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck

@@ -35,12 +35,7 @@ var (
 type (
 	tickMsg       time.Time
 	diffLoadedMsg struct {
-		raw   string
-		files []models.FileDiff
-	}
-	notifyMsg struct {
-		text     string
-		severity string
+		raw string
 	}
 	errMsg struct{ err error }
 )
@@ -326,7 +321,7 @@ func (m *Model) addComment(text string) {
 	ctx := m.diffView.GetHunkContext(m.diffView.CursorIndex, 2)
 	comment := comments.MakeComment(m.currentFile.Path, *dl, text, ctx, m.diffMode)
 	m.commentsData = append(m.commentsData, comment)
-	comments.Save(m.repoRoot, m.commentsData, m.branch, m.base)
+	_ = comments.Save(m.repoRoot, m.commentsData, m.branch, m.base)
 	m.reloadCurrentFile()
 }
 
@@ -346,7 +341,7 @@ func (m *Model) deleteComment() {
 	}
 	if deleted {
 		m.commentsData = kept
-		comments.Save(m.repoRoot, m.commentsData, m.branch, m.base)
+		_ = comments.Save(m.repoRoot, m.commentsData, m.branch, m.base)
 		m.reloadCurrentFile()
 	}
 }
