@@ -37,6 +37,7 @@ brews:
       owner: joshuazd
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
     name: nit
     homepage: https://github.com/joshuazd/nit
     description: Terminal diff viewer with inline review comments
