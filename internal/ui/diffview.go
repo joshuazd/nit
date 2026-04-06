@@ -90,10 +90,7 @@ func (m *DiffViewModel) toggleKey() uint32 {
 	return k
 }
 
-func (m *DiffViewModel) invalidateCache() {
-	m.renderCache = nil
-	m.renderCacheKey = 0
-}
+
 
 // LoadFileDiff loads a file diff into the view.
 // Only builds data structures — rendering is deferred to Render().
@@ -810,9 +807,3 @@ func wrapToWidth(text string, maxWidth int) []string {
 	return strings.Split(wrapped, "\n")
 }
 
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}

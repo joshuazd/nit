@@ -69,12 +69,8 @@ var (
 
 // File tree styles
 var (
-	fileAddedStyle    = lipgloss.NewStyle().Foreground(Green).Bold(true)
-	fileDeletedStyle  = lipgloss.NewStyle().Foreground(Red).Bold(true)
-	fileRenamedStyle  = lipgloss.NewStyle().Foreground(Cyan).Bold(true)
-	fileModifiedStyle = lipgloss.NewStyle().Foreground(Yellow).Bold(true)
-	fileDimStyle      = lipgloss.NewStyle().Faint(true)
-	dirStyle          = lipgloss.NewStyle().Faint(true)
+	fileDimStyle = lipgloss.NewStyle().Faint(true)
+	dirStyle     = lipgloss.NewStyle().Faint(true)
 )
 
 // Comment styles

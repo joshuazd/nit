@@ -55,7 +55,6 @@ func getOrCreateDir(root *FileTreeNode, dir string, cache map[string]*FileTreeNo
 func buildFileTree(files []models.FileDiff, commentCounts map[string]int) (*FileTreeNode, []int) {
 	root := &FileTreeNode{IsDir: true}
 	dirCache := map[string]*FileTreeNode{"": root, ".": root}
-	var treeOrder []int
 
 	for i := range files {
 		fd := &files[i]
@@ -68,14 +67,13 @@ func buildFileTree(files []models.FileDiff, commentCounts map[string]int) (*File
 			Entry: &FileTreeEntry{Index: i, FileDiff: fd, CommentCount: cc},
 		}
 		parent.Children = append(parent.Children, leaf)
-		treeOrder = append(treeOrder, i)
 	}
 
 	// Sort: directories first, then files, alphabetical within each group
 	sortTree(root)
 
-	// Rebuild treeOrder from sorted traversal
-	treeOrder = nil
+	// Build treeOrder from sorted traversal
+	var treeOrder []int
 	collectFileOrder(root, &treeOrder)
 
 	return root, treeOrder
@@ -356,18 +354,6 @@ func fileStatusLetter(status models.FileStatus) string {
 	}
 }
 
-func fileStatusStyle(status models.FileStatus) lipgloss.Style {
-	switch status {
-	case models.StatusAdded:
-		return fileAddedStyle
-	case models.StatusDeleted:
-		return fileDeletedStyle
-	case models.StatusRenamed:
-		return fileRenamedStyle
-	default:
-		return fileModifiedStyle
-	}
-}
 
 func truncate(s string, maxWidth int) string {
 	if lipgloss.Width(s) <= maxWidth {
