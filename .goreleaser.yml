@@ -36,9 +36,12 @@ brews:
   - repository:
       owner: joshuazd
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     name: nit
     homepage: https://github.com/joshuazd/nit
     description: Terminal diff viewer with inline review comments
     license: GPL-3.0
     install: |
       bin.install "nit"
+    test: |
+      assert_match "nit", shell_output("#{bin}/nit --help")
