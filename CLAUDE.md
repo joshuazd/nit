@@ -4,43 +4,55 @@ Terminal diff viewer with inline review comments.
 
 ## Architecture
 
-Python + Textual TUI. Single-screen app with two panels (file list + diff view).
+Go + Bubble Tea TUI. Single-screen app with two panels (file tree + diff view).
 
-- `app.py` — Textual app, widgets (DiffView, FileTree, CommentBlock, CommitInput), keybindings, git operations
-- `cli.py` — argparse CLI: `--mode`, `--version`, `--path`, `--export-comments`, positional target (file or commit range)
-- `diff_parser.py` — Unified diff text → structured dataclasses; `align_hunk_lines()` for side-by-side; `build_patch()` for git apply; `word_diff_segments()` for word-level highlighting; `file_to_diff()` for file review mode
-- `git.py` — Thin subprocess wrappers: diff (branch/unstaged/staged/all/range), `apply_patch()`, `commit()`, `ignore_whitespace` support
-- `models.py` — `DiffLine`, `DiffHunk`, `FileDiff`, `SideBySideRow`, `ReviewComment`
-- `comments.py` — Read/write `.nit.json` (atomic writes via temp file + rename); export as markdown/JSON
-- `syntax.py` — Syntax highlighting via Rich's `Syntax` class; `highlight_line()`, `detect_language()`
+- `cmd/nit/main.go` — Entry point, cobra CLI, version injection via ldflags
+- `internal/ui/app.go` — Bubble Tea model, state management, git operations, View()
+- `internal/ui/diffview.go` — Diff viewport: lazy rendering, cursor, scroll, unified + SBS, word wrap
+- `internal/ui/filetree.go` — Nested tree with guide characters, directory grouping, cursor
+- `internal/ui/statusbar.go` — 4-segment status bar (branch, mode, files, comments)
+- `internal/ui/footer.go` — Keybinding hints
+- `internal/ui/input.go` — Comment + commit text input
+- `internal/ui/keys.go` — All keybindings in one place
+- `internal/ui/styles.go` — Lip Gloss ANSI styles (vigil pattern: string color refs, bg threading)
+- `internal/diff/` — Parser, side-by-side alignment, patch builder, word-level diff
+- `internal/git/` — Subprocess wrappers with 30s timeout, all diff modes
+- `internal/comments/` — `.nit.json` load/save (atomic), export markdown/JSON
+- `internal/syntax/` — Chroma-based highlighting, language detection
+- `internal/models/` — DiffLine, DiffHunk, FileDiff, SideBySideRow, ReviewComment
+- `internal/cli/` — CLIArgs struct, target parsing
 
 ## Package
 
-- PyPI name: `nit-cli` (import name: `nit`, CLI command: `nit`)
+- Binary: `nit`
 - License: GPL-3.0
+- Homebrew: `joshuazd/homebrew-tap`
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"   # development install with test/lint deps
-make test                 # run tests via venv
-make lint                 # run ruff via venv
-make release              # tag, push, publish to PyPI, update Homebrew formula
+make build    # build ./nit binary
+make test     # run tests with race detection
+make lint     # golangci-lint
+make vet      # go vet
+make check    # test + lint + vet
+make install  # install to ~/.local/bin/nit
+make run      # build and run (usage: make run ARGS="--mode unstaged")
 ```
 
-The `./nit` bootstrap script auto-creates a venv at `~/.local/share/nit/venv` for quick local use.
+## Legacy Python Version
+
+The original Python implementation lives in `python/`. Run with `cd python && ./nit`.
 
 ## Key Conventions
 
-- All colors use Textual theme tokens in TCSS — inherits terminal color scheme
-- Command palette is disabled (`COMMANDS = set()`)
-- Theme is `textual-ansi` with `ansi_color=True` (inherits terminal palette)
+- Colors use ANSI 0-15 via `lipgloss.Color("N")` — inherits terminal theme
+- Cursor background threading: pass `bg *lipgloss.Color` through render functions (vigil pattern)
+- Unified cursor: single `lipgloss.NewStyle().Width(w).Background(Black).Render()` pass
 - Comments persist to `.nit.json` at the git repo root (globally gitignored)
-- Git operations use `g`-prefix chords (like vim's `g` namespace), dispatched via `on_key()` handler
-- Side-by-side view uses `SideBySideRow` alignment model; word diff uses `word_diff_segments()`
-- Syntax highlighting only colors context lines; changed lines use reverse green/red for visibility
-- Auto-refresh polls git every 5s; pauses during comment/commit input
-- File review mode (`nit <file>`) creates synthetic diff via `file_to_diff()`, disables git ops
-- Smart default mode: unstaged on main/master, branch on feature branches
+- Git operations use `g`-prefix chords dispatched in key handler
+- Lazy rendering: only visible viewport lines are formatted, cached by toggle state
+- Word diff results cached per file load
+- Auto-refresh uses `git diff --stat` as cheap change fingerprint
+- Side-by-side wraps each column independently within half width
 - Claude reads comments via the `/nit` skill
-- Homebrew formula lives in `joshuazd/homebrew-tap`

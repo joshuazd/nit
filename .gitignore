@@ -1,8 +1,17 @@
+# Go
+/nit
+coverage.out
+
+# Python (legacy, in python/ subfolder)
 __pycache__/
 *.egg-info/
 dist/
 build/
-.nit.json
 .venv/
 .pytest_cache/
+
+# nit
+.nit.json
+
+# Claude
 .claude/settings.local.json

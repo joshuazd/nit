@@ -1,30 +1,53 @@
-VENV := $(HOME)/.local/share/nit/venv
-PYTHON := $(VENV)/bin/python
-VERSION := $(shell $(PYTHON) -c "import tomllib; print(tomllib.loads(open('pyproject.toml').read())['project']['version'])" 2>/dev/null || python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml').read())['project']['version'])")
-TAP_REPO := joshuazd/homebrew-tap
+BINARY   := nit
+VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS  := -s -w -X main.version=$(VERSION)
+GOFLAGS  := -trimpath
 
-.PHONY: install test lint clean release bump-tap
+.PHONY: build install test cover lint fmt vet check clean run release
 
-install:
-	./nit --help > /dev/null
+## Build the binary
+build:
+	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/nit
 
+## Build and install to ~/.local/bin (or PREFIX/bin)
+PREFIX ?= $(HOME)/.local
+install: build
+	install -d $(PREFIX)/bin
+	install -m 755 $(BINARY) $(PREFIX)/bin/$(BINARY)
+
+## Run all tests
 test:
-	$(PYTHON) -m pytest tests/ -v
+	go test ./... -v -race -count=1
 
+## Run tests with coverage
+cover:
+	go test ./... -coverprofile=coverage.out -race
+	go tool cover -func=coverage.out
+
+## Lint with golangci-lint
 lint:
-	$(PYTHON) -m ruff check src/ tests/
-	$(PYTHON) -m ruff format --check src/ tests/
+	golangci-lint run ./...
 
+## Format code
+fmt:
+	gofumpt -w .
+	goimports -w .
+
+## Run go vet
+vet:
+	go vet ./...
+
+## Run all checks (test + lint + vet)
+check: test lint vet
+
+## Remove build artifacts
 clean:
-	rm -rf $(VENV)
+	rm -f $(BINARY) coverage.out
 
-release: test lint
-	@echo "Releasing v$(VERSION)..."
-	@if git rev-parse "v$(VERSION)" >/dev/null 2>&1; then \
-		echo "Error: tag v$(VERSION) already exists. Bump version in pyproject.toml first."; \
-		exit 1; \
-	fi
-	git tag "v$(VERSION)"
-	git push origin "v$(VERSION)"
-	gh release create "v$(VERSION)" --title "v$(VERSION)" --notes "$$(git log --format='- %s' $$(git describe --tags --abbrev=0 HEAD^)..HEAD)"
-	@echo "Release created. CI will publish to PyPI and update Homebrew."
+## Build and run with args (usage: make run ARGS="--mode unstaged")
+run: build
+	./$(BINARY) $(ARGS)
+
+## Release via goreleaser (requires GITHUB_TOKEN)
+release:
+	goreleaser release --clean
