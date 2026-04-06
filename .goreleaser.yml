@@ -1,0 +1,47 @@
+version: 2
+
+builds:
+  - id: nit
+    main: ./cmd/nit
+    binary: nit
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    flags:
+      - -trimpath
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - repository:
+      owner: joshuazd
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    name: nit
+    homepage: https://github.com/joshuazd/nit
+    description: Terminal diff viewer with inline review comments
+    license: GPL-3.0
+    install: |
+      bin.install "nit"
+    test: |
+      assert_match "nit", shell_output("#{bin}/nit --help")
