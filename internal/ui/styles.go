@@ -9,6 +9,7 @@ var (
 	Green       = lipgloss.Color("2")
 	Yellow      = lipgloss.Color("3")
 	Magenta     = lipgloss.Color("5")
+	Blue        = lipgloss.Color("4")
 	Cyan        = lipgloss.Color("6")
 	White       = lipgloss.Color("7")
 	BrightBlack = lipgloss.Color("8")
@@ -44,6 +45,13 @@ var (
 				Bold(true).
 				Padding(0, 1)
 )
+
+// File path bar (above diff viewer)
+var filePathBarStyle = lipgloss.NewStyle().
+	Background(Blue).
+	Foreground(Black).
+	Bold(true).
+	Padding(0, 1)
 
 // Diff line styles
 var (

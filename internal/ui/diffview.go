@@ -509,14 +509,28 @@ func (m *DiffViewModel) ensureScrollVisible() {
 		m.Scroll = 0
 	}
 
-	// Cursor above scroll — snap to cursor
-	if m.CursorIndex < m.Scroll {
-		m.Scroll = m.CursorIndex
+	// Scroll margin: keep cursor ~1/3 from viewport edges
+	margin := m.Height / 3
+	if margin > m.Height/2 {
+		margin = m.Height / 2
+	}
+
+	// Cursor above scroll + margin — pull scroll up to keep margin above cursor
+	if m.CursorIndex-margin < m.Scroll {
+		target := m.CursorIndex - margin
+		if target < 0 {
+			target = 0
+		}
+		m.Scroll = target
 		return
 	}
 
-	// Cursor below viewport — compute visual height from scroll to cursor
-	// to determine if we need to advance scroll
+	// Cursor below viewport minus margin — compute visual height from scroll
+	// to cursor to determine if we need to advance scroll
+	effectiveHeight := m.Height - margin
+	if effectiveHeight < 1 {
+		effectiveHeight = 1
+	}
 	for {
 		visLines := 0
 		cursorFound := false
@@ -542,8 +556,8 @@ func (m *DiffViewModel) ensureScrollVisible() {
 				break
 			}
 		}
-		if cursorFound && visLines <= m.Height {
-			break // cursor is visible
+		if cursorFound && visLines <= effectiveHeight {
+			break // cursor is visible within margin
 		}
 		// Advance scroll
 		if m.Scroll >= m.CursorIndex {

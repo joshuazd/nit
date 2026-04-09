@@ -18,8 +18,9 @@ func RenderStatusBar(width int, branch, modeLabel string, ignoreWS bool, fileCou
 	filesText := fmt.Sprintf("▤ %d files", fileCount)
 	commentsText := fmt.Sprintf("✎ %d comments", commentCount)
 
-	// Fixed-width segments
-	modeW := lipgloss.Width(modeText) + 2 // padding
+	// Fixed-width segments — minModeW covers widest label "⇄  branch diff [no-ws]" + padding
+	minModeW := 24
+	modeW := max(lipgloss.Width(modeText)+2, minModeW)
 	filesW := lipgloss.Width(filesText) + 2
 	commentsW := lipgloss.Width(commentsText) + 2
 	branchW := width - modeW - filesW - commentsW

@@ -34,8 +34,11 @@ var (
 // Messages
 type (
 	tickMsg       time.Time
+	repoInitMsg   struct{ repoRoot string }
 	diffLoadedMsg struct {
-		raw string
+		raw       string
+		fileDiffs []models.FileDiff
+		gen       uint64
 	}
 	errMsg struct{ err error }
 )
@@ -77,6 +80,10 @@ type Model struct {
 	// Auto-refresh debouncing
 	lastStat string
 
+	// Async diff loading
+	loading bool
+	loadGen uint64
+
 	// Quit tracking for export
 	Quitting bool
 	Comments []models.ReviewComment
@@ -116,7 +123,7 @@ func (m Model) initGit() tea.Msg {
 	if err != nil {
 		return errMsg{fmt.Errorf("not a git repository")}
 	}
-	return diffLoadedMsg{raw: root} // abuse: first load uses raw as repoRoot signal
+	return repoInitMsg{repoRoot: root}
 }
 
 // Update implements tea.Model.
@@ -133,6 +140,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m.handleTick()
+
+	case repoInitMsg:
+		return m.handleRepoInit(msg)
 
 	case diffLoadedMsg:
 		return m.handleDiffLoaded(msg)
@@ -165,7 +175,7 @@ func (m *Model) updateDimensions() {
 	}
 	m.fileTree.Height = contentHeight
 	m.fileTree.Width = sidebarWidth - 2
-	m.diffView.Height = contentHeight
+	m.diffView.Height = contentHeight - 1 // reserve 1 line for file path header
 	m.diffView.Width = m.width - sidebarWidth - 2
 }
 
@@ -178,20 +188,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle g-chord
 	if m.pendingG {
 		m.pendingG = false
+		var cmd tea.Cmd
 		switch msg.String() {
 		case "g":
 			m.diffView.CursorIndex = 0
 		case "a":
-			m.stageHunk()
+			cmd = m.stageHunk()
 		case "u":
-			m.unstageHunk()
+			cmd = m.unstageHunk()
 		case "x":
-			m.discardHunk()
+			cmd = m.discardHunk()
 		case "c":
 			m.input.StartCommit()
 			return m, m.input.TextInput.Cursor.BlinkCmd()
 		}
-		return m, nil
+		return m, cmd
 	}
 
 	switch {
@@ -205,6 +216,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.CursorUp):
 		m.diffView.MoveCursor(-1)
+
+	case key.Matches(msg, keys.HalfPageDown):
+		m.diffView.MoveCursor(m.diffView.Height / 2)
+
+	case key.Matches(msg, keys.HalfPageUp):
+		m.diffView.MoveCursor(-m.diffView.Height / 2)
 
 	case key.Matches(msg, keys.NextHunk):
 		m.diffView.JumpToNextHunk(true)
@@ -238,10 +255,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.deleteComment()
 
 	case key.Matches(msg, keys.CycleMode):
-		m.cycleMode()
+		return m, m.cycleMode()
 
 	case key.Matches(msg, keys.Refresh):
-		m.refresh()
+		return m, m.refresh()
 
 	case key.Matches(msg, keys.NextComment):
 		fileComments := m.getFileComments()
@@ -261,7 +278,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.ToggleWS):
 		m.ignoreWS = !m.ignoreWS
-		m.loadDiff()
+		return m, m.startLoadDiff()
 
 	case key.Matches(msg, keys.Export):
 		m.exportComments()
@@ -288,10 +305,9 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		val := strings.TrimSpace(m.input.Submit())
 		if val != "" {
 			if mode == InputCommit {
-				m.doCommit(val)
-			} else {
-				m.addComment(val)
+				return m, m.doCommit(val)
 			}
+			m.addComment(val)
 		}
 		return m, nil
 	}
@@ -346,88 +362,88 @@ func (m *Model) deleteComment() {
 	}
 }
 
-func (m *Model) doCommit(message string) {
+func (m *Model) doCommit(message string) tea.Cmd {
 	if m.repoRoot == "" || m.fileReviewMode {
-		return
+		return nil
 	}
 	_, err := git.Commit(message, m.repoRoot)
 	if err != nil {
 		m.notify("Commit failed: "+err.Error(), "error")
-		return
+		return nil
 	}
 	m.notify("Committed", "info")
-	m.loadDiff()
+	return m.startLoadDiff()
 }
 
-func (m *Model) stageHunk() {
+func (m *Model) stageHunk() tea.Cmd {
 	if m.fileReviewMode {
-		return
+		return nil
 	}
 	if m.diffMode != "unstaged" && m.diffMode != "all" {
 		m.notify("Stage: switch to unstaged/all mode", "warning")
-		return
+		return nil
 	}
 	fd, hunk := m.diffView.GetCurrentHunk()
 	if fd == nil || hunk == nil {
-		return
+		return nil
 	}
 	patch := diffpkg.BuildPatch(fd, hunk)
 	_, err := git.ApplyPatch(patch, m.repoRoot, true, false)
 	if err != nil {
 		m.notify("Stage failed: "+err.Error(), "error")
-		return
+		return nil
 	}
 	m.notify("Hunk staged", "info")
-	m.loadDiff()
+	return m.startLoadDiff()
 }
 
-func (m *Model) unstageHunk() {
+func (m *Model) unstageHunk() tea.Cmd {
 	if m.fileReviewMode {
-		return
+		return nil
 	}
 	if m.diffMode != "staged" {
 		m.notify("Unstage: switch to staged mode", "warning")
-		return
+		return nil
 	}
 	fd, hunk := m.diffView.GetCurrentHunk()
 	if fd == nil || hunk == nil {
-		return
+		return nil
 	}
 	patch := diffpkg.BuildPatch(fd, hunk)
 	_, err := git.ApplyPatch(patch, m.repoRoot, true, true)
 	if err != nil {
 		m.notify("Unstage failed: "+err.Error(), "error")
-		return
+		return nil
 	}
 	m.notify("Hunk unstaged", "info")
-	m.loadDiff()
+	return m.startLoadDiff()
 }
 
-func (m *Model) discardHunk() {
+func (m *Model) discardHunk() tea.Cmd {
 	if m.fileReviewMode {
-		return
+		return nil
 	}
 	if m.diffMode != "unstaged" && m.diffMode != "all" {
 		m.notify("Discard: switch to unstaged/all mode", "warning")
-		return
+		return nil
 	}
 	fd, hunk := m.diffView.GetCurrentHunk()
 	if fd == nil || hunk == nil {
-		return
+		return nil
 	}
 	patch := diffpkg.BuildPatch(fd, hunk)
 	_, err := git.ApplyPatch(patch, m.repoRoot, false, true)
 	if err != nil {
 		m.notify("Discard failed: "+err.Error(), "error")
-		return
+		return nil
 	}
 	m.notify("Hunk discarded", "info")
-	m.loadDiff()
+	return m.startLoadDiff()
 }
 
-func (m *Model) cycleMode() {
+func (m *Model) cycleMode() tea.Cmd {
 	if m.fileReviewMode || m.args.CommitRange != "" {
-		return
+		return nil
 	}
 	for i, mode := range DiffModes {
 		if mode == m.diffMode {
@@ -435,14 +451,14 @@ func (m *Model) cycleMode() {
 			break
 		}
 	}
-	m.loadDiff()
+	return m.startLoadDiff()
 }
 
-func (m *Model) refresh() {
+func (m *Model) refresh() tea.Cmd {
 	if m.repoRoot != "" {
 		m.commentsData = comments.Load(m.repoRoot)
 	}
-	m.loadDiff()
+	return m.startLoadDiff()
 }
 
 func (m *Model) exportComments() {
@@ -512,34 +528,46 @@ func (m *Model) getFileComments() []models.ReviewComment {
 	return fc
 }
 
-func (m *Model) getRawDiff() string {
-	if m.repoRoot == "" {
+func getRawDiffPure(repoRoot, diffMode, base, pathFilter, commitRange string, ignoreWS bool) string {
+	if repoRoot == "" {
 		return ""
 	}
-	cwd := m.repoRoot
-	pf := m.args.PathFilter
 
-	if m.args.CommitRange != "" {
-		d, _ := git.GetCommitRangeDiff(m.args.CommitRange, cwd, pf, m.ignoreWS)
+	if commitRange != "" {
+		d, _ := git.GetCommitRangeDiff(commitRange, repoRoot, pathFilter, ignoreWS)
 		return d
 	}
 
 	var d string
-	switch m.diffMode {
+	switch diffMode {
 	case "branch":
-		d, _ = git.GetBranchDiffWithBase(m.base, cwd, pf, m.ignoreWS)
+		d, _ = git.GetBranchDiffWithBase(base, repoRoot, pathFilter, ignoreWS)
+		return d // no untracked for branch diff
 	case "unstaged":
-		d, _ = git.GetUnstagedDiff(cwd, pf, m.ignoreWS)
+		d, _ = git.GetUnstagedDiff(repoRoot, pathFilter, ignoreWS)
 	case "staged":
-		d, _ = git.GetStagedDiff(cwd, pf, m.ignoreWS)
+		d, _ = git.GetStagedDiff(repoRoot, pathFilter, ignoreWS)
 		return d // no untracked for staged
 	case "all":
-		d, _ = git.GetUnpushedDiff(cwd, pf, m.ignoreWS)
+		d, _ = git.GetUnpushedDiff(repoRoot, pathFilter, ignoreWS)
 	}
 
 	// Append untracked
-	untracked, _ := git.GetUntrackedDiff(cwd, pf)
+	untracked, _ := git.GetUntrackedDiff(repoRoot, pathFilter)
 	return d + untracked
+}
+
+func loadDiffCmd(repoRoot, diffMode, base, pathFilter, commitRange string, ignoreWS bool, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		raw := getRawDiffPure(repoRoot, diffMode, base, pathFilter, commitRange, ignoreWS)
+		return diffLoadedMsg{raw: raw, fileDiffs: diffpkg.ParseDiff(raw), gen: gen}
+	}
+}
+
+func (m *Model) startLoadDiff() tea.Cmd {
+	m.loading = true
+	m.loadGen++
+	return loadDiffCmd(m.repoRoot, m.diffMode, m.base, m.args.PathFilter, m.args.CommitRange, m.ignoreWS, m.loadGen)
 }
 
 func (m *Model) getQuickStat() string {
@@ -568,12 +596,6 @@ func (m *Model) getQuickStat() string {
 	return stat
 }
 
-func (m *Model) loadDiff() {
-	raw := m.getRawDiff()
-	m.lastRawDiff = raw
-	m.fileDiffs = diffpkg.ParseDiff(raw)
-	m.updateFileList()
-}
 
 func (m *Model) updateFileList() {
 	cc := m.commentCounts()
@@ -616,49 +638,57 @@ func (m Model) handleTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Auto-refresh — use cheap stat check before full diff
-	if !m.fileReviewMode && !m.input.IsActive() && m.repoRoot != "" {
+	if !m.fileReviewMode && !m.input.IsActive() && m.repoRoot != "" && !m.loading {
 		stat := m.getQuickStat()
 		if stat != m.lastStat {
 			m.lastStat = stat
-			m.loadDiff()
+			cmd := m.startLoadDiff()
+			return m, tea.Batch(cmd, tickCmd())
 		}
 	}
 
 	return m, tickCmd()
 }
 
-func (m Model) handleDiffLoaded(msg diffLoadedMsg) (tea.Model, tea.Cmd) {
-	// First load: msg.raw is the repo root
-	if m.repoRoot == "" {
-		m.repoRoot = msg.raw
-		// Parallel git metadata fetch
-		var branch, base string
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() { defer wg.Done(); branch, _ = git.GetCurrentBranch(m.repoRoot) }()
-		go func() { defer wg.Done(); base = git.GetMainBranch(m.repoRoot) }()
-		wg.Wait()
-		m.branch = branch
-		if m.branch == "" {
-			m.branch = "(detached HEAD)"
-		}
-		m.base = base
-
-		if m.args.Mode != "" {
-			m.diffMode = m.args.Mode
-		} else if m.branch == m.base {
-			m.diffMode = "unstaged"
-		}
-
-		m.commentsData = comments.Load(m.repoRoot)
-
-		if m.args.FilePath != "" {
-			m.mountFileReview()
-		} else {
-			m.loadDiff()
-		}
-		m.updateDimensions()
+func (m Model) handleRepoInit(msg repoInitMsg) (tea.Model, tea.Cmd) {
+	m.repoRoot = msg.repoRoot
+	// Parallel git metadata fetch
+	var branch, base string
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); branch, _ = git.GetCurrentBranch(m.repoRoot) }()
+	go func() { defer wg.Done(); base = git.GetMainBranch(m.repoRoot) }()
+	wg.Wait()
+	m.branch = branch
+	if m.branch == "" {
+		m.branch = "(detached HEAD)"
 	}
+	m.base = base
+
+	if m.args.Mode != "" {
+		m.diffMode = m.args.Mode
+	} else if m.branch == m.base {
+		m.diffMode = "unstaged"
+	}
+
+	m.commentsData = comments.Load(m.repoRoot)
+	m.updateDimensions()
+
+	if m.args.FilePath != "" {
+		m.mountFileReview()
+		return m, nil
+	}
+	return m, m.startLoadDiff()
+}
+
+func (m Model) handleDiffLoaded(msg diffLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.loadGen {
+		return m, nil // stale
+	}
+	m.loading = false
+	m.lastRawDiff = msg.raw
+	m.fileDiffs = msg.fileDiffs
+	m.updateFileList()
 	return m, nil
 }
 
@@ -698,20 +728,32 @@ func (m Model) View() string {
 	if m.args.CommitRange != "" {
 		modeLabel = m.args.CommitRange
 	}
+	if m.loading {
+		modeLabel += " ..."
+	}
 	statusBar := RenderStatusBar(m.width, m.branch, modeLabel, m.ignoreWS, len(m.fileDiffs), len(m.commentsData))
 
 	// File tree — trim trailing newline so .Height() counts correctly
 	treeContent := strings.TrimRight(m.fileTree.Render(), "\n")
-	treeBorder := borderStyle.Width(sidebarWidth - 2).Height(m.diffView.Height).Render(treeContent)
+	treeBorder := borderStyle.Width(sidebarWidth - 2).Height(m.diffView.Height + 1).Render(treeContent)
 
 	// Pipe text input view into diff view for inline comment input
 	if m.input.IsActive() && m.input.Mode == InputComment {
 		m.diffView.InputView = m.input.TextInput.View()
 	}
 
+	// File path header above diff content
+	filePathLine := ""
+	if m.currentFile != nil {
+		filePathLine = filePathBarStyle.Width(diffWidth - 2).MaxHeight(1).Render(m.currentFile.Path)
+	} else {
+		filePathLine = filePathBarStyle.Width(diffWidth - 2).MaxHeight(1).Render("")
+	}
+
 	// Diff view — trim trailing newline so .Height() counts correctly
 	diffContent := strings.TrimRight(m.diffView.Render(), "\n")
-	diffBorder := borderStyle.Width(diffWidth - 2).Height(m.diffView.Height).Render(diffContent)
+	diffWithHeader := filePathLine + "\n" + diffContent
+	diffBorder := borderStyle.Width(diffWidth - 2).Height(m.diffView.Height + 1).Render(diffWithHeader)
 
 	// Layout: sidebar | diff view
 	body := lipgloss.JoinHorizontal(lipgloss.Top, treeBorder, diffBorder)

@@ -23,6 +23,8 @@ type keyMap struct {
 	ToggleWS      key.Binding
 	Export        key.Binding
 	ToggleSyntax  key.Binding
+	HalfPageDown  key.Binding
+	HalfPageUp    key.Binding
 }
 
 var keys = keyMap{
@@ -46,6 +48,8 @@ var keys = keyMap{
 	ToggleWS:      key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "whitespace")),
 	Export:        key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "export")),
 	ToggleSyntax:  key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "highlight")),
+	HalfPageDown:  key.NewBinding(key.WithKeys("ctrl+d")),
+	HalfPageUp:    key.NewBinding(key.WithKeys("ctrl+u")),
 }
 
 // FooterBindings returns the visible keybinding hints for the footer.

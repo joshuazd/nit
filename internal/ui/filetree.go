@@ -117,28 +117,29 @@ func collectFileOrder(node *FileTreeNode, order *[]int) {
 func flattenTree(node *FileTreeNode) []displayLine {
 	var lines []displayLine
 	fileIdx := 0
-	flattenChildren(node, "", &lines, &fileIdx)
+	flattenChildren(node, "", &lines, &fileIdx, true)
 	return lines
 }
 
-func flattenChildren(node *FileTreeNode, prefix string, lines *[]displayLine, fileIdx *int) {
+func flattenChildren(node *FileTreeNode, prefix string, lines *[]displayLine, fileIdx *int, isRoot bool) {
 	for i, child := range node.Children {
 		isLast := i == len(node.Children)-1
 
-		var connector string
-		var childPrefix string
-		if isLast {
-			connector = "└ "
-			childPrefix = prefix + "  "
+		var linePrefix, childPrefix string
+		if isRoot {
+			linePrefix = ""
+			childPrefix = ""
+		} else if isLast {
+			linePrefix = prefix + "└"
+			childPrefix = prefix + " "
 		} else {
-			connector = "├ "
-			childPrefix = prefix + "│ "
+			linePrefix = prefix + "├"
+			childPrefix = prefix + "│"
 		}
 
-		linePrefix := prefix + connector
 		if child.IsDir {
 			*lines = append(*lines, displayLine{prefix: linePrefix, node: child, fileIdx: -1})
-			flattenChildren(child, childPrefix, lines, fileIdx)
+			flattenChildren(child, childPrefix, lines, fileIdx, false)
 		} else {
 			*lines = append(*lines, displayLine{prefix: linePrefix, node: child, fileIdx: *fileIdx})
 			*fileIdx++
